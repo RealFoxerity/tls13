@@ -1,0 +1,14 @@
+#ifndef HTTP_STATUS_CODES_H
+#define HTTP_STATUS_CODES_H
+
+enum codes {
+    HTTP_OK = 200,
+    HTTP_CREATED = 201,
+    HTTP_ACCEPTED = 202,
+    HTTP_RESET_CONTENT = 205,
+    HTTP_MOVED_PERMANENTLY = 301,
+    HTTP_FOUND = 302,
+    
+};
+
+#endif
