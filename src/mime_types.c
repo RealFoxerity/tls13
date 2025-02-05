@@ -72,21 +72,26 @@ const char * mime_types[] = {
     "application/x-7z-compressed"
 };
 
-inline const char * get_mime_type() {
-    
-}
+#define max(a,b) (a>b?a:b)
 
 const char* identify_mime_type(const char * path) {
     const char* last_slash = strrchr(path, '/');
     const char* last_dot   = strrchr(path, '.');
     if (last_slash == NULL) {
         fprintf(stderr, "Warning: file path `%s' does not contain a '/'\n", path);
-        last_slash = path;
+        last_slash = path-1;
     }
-    if (last_dot == NULL) {
+    if (last_dot < last_slash) { // NULL = 0
         return default_mime;
     }
     if (last_dot > last_slash) { // file has extension, if last_dot<last_slash, there is a dot inside the path
-
+        if (*(last_dot+1) == '\0') return default_mime; // files like 'aaa.'
+        for (int i = 0; i<(sizeof(file_extension)/sizeof(char *)); i++) {
+            if (strncmp(last_dot, file_extension[i], max(strlen(last_dot), strlen(file_extension[i]))) == 0) {
+                return mime_types[i];
+            }
+        }
+        return default_mime;
     }
+    return default_mime;
 }
