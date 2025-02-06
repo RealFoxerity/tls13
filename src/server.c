@@ -4,6 +4,8 @@
 #include <netinet/in.h> // sockaddr_in
 #include <sys/socket.h> // recv, setsockopt
 
+#include <string.h> // memset, strncmp
+
 #include <errno.h>
 
 #include <unistd.h> // close
@@ -11,6 +13,8 @@
 #define MAX_TIMEOUT 3
 
 #define MAX_REQUEST_SIZE (1024*1024) // 1 MB
+
+static inline void respond(char * buffer, int socket_fd);
 
 void server(int socket_fd, struct sockaddr_in addr) {
 
@@ -25,10 +29,11 @@ void server(int socket_fd, struct sockaddr_in addr) {
     char * buffer = malloc(MAX_REQUEST_SIZE);
     assert(buffer != NULL);
 
-    int recv_amoount;
+    int recv_amount;
 
     while (1) {
-        switch (recv_amoount = recv(socket_fd, buffer, MAX_REQUEST_SIZE, MSG_TRUNC)) {
+        memset(buffer, 0, MAX_REQUEST_SIZE);
+        switch (recv_amount = recv(socket_fd, buffer, MAX_REQUEST_SIZE, MSG_TRUNC)) {
             case -1:
                 if (errno == ETIMEDOUT || errno == EAGAIN) { // syscall specifies EAGAIN, programmer manual ETIMEDOUT, EAGAIN works  ???
                     fprintf(stderr, "Timeout reached while waiting for client; ending connection...\n");
@@ -48,12 +53,17 @@ void server(int socket_fd, struct sockaddr_in addr) {
                 goto END;
                 break;
             default:
-                if (recv_amoount > MAX_REQUEST_SIZE) { // works because MSG_TRUNC
-                    fprintf(stderr, "WARNING: Recieved request too large (%d/%d)!\n", recv_amoount, MAX_REQUEST_SIZE);
+                if (recv_amount > MAX_REQUEST_SIZE) { // works because MSG_TRUNC
+                    fprintf(stderr, "WARNING: Recieved request too large (%d/%d)!\n", recv_amount, MAX_REQUEST_SIZE);
                 }
+                respond(buffer, socket_fd);
                 break;
         }
     }
 
     return;
+}
+
+static inline void respond(char * buffer, int socket_fd) {
+    // parse request type
 }

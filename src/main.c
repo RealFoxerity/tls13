@@ -1,3 +1,4 @@
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <assert.h>
@@ -9,15 +10,35 @@
 #include <arpa/inet.h> // htonl, htons, inet_pton, inet_ntop
 #include <netinet/in.h> // sockaddr, sockaddr_in
 
+#include <signal.h>
+
 #include <string.h>
+
+
+#define MAX_CLIENTS 15
 
 const char* default_ip = {"0.0.0.0"};
 const char* default_root = {"./webroot"};
+
+int child_count = 0;
+
+void child_callback() {
+    fprintf(stderr, "Server thread terminated\n");
+    child_count --;
+    return;
+}
+
+pid_t server_pid;
 
 int main(int argc, char** argv) {
     char * ip_str = (char*)default_ip, * root = (char*) default_root;
     unsigned int ip;
     short port = htons(8080);
+
+    server_pid = getpid();
+
+    signal(SIGCHLD, child_callback);
+
     for (int i = 1; i<argc; i++) {
         if (strcmp("-a", argv[i]) == 0) {
             if (i+1 > argc) {
@@ -87,12 +108,18 @@ int main(int argc, char** argv) {
     printf("Running server on %s:%hu\n", ip_str, htons(port));
 
     while ((conn_fd = accept(socket_fd, (struct sockaddr *) &addr, &addr_size)) != -1) {
+        if (child_count > MAX_CLIENTS) {
+            fprintf(stderr, "WARNING: Maximum client count reached, refusing new connection...\n");
+            shutdown(conn_fd, SHUT_RDWR);
+            close(conn_fd);
+        }
         switch (fork()) {
             case 0: // child
                 server(conn_fd, addr);
                 exit(EXIT_SUCCESS);
                 break;
             default:
+                child_count ++;
                 inet_ntop(addr.sin_family, &addr.sin_addr, ip_client, 16);
                 fprintf(stderr, "Recieved connection from %s:%d\n",ip_client, htons(addr.sin_port));
                 close(conn_fd);
