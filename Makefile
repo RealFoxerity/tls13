@@ -13,8 +13,8 @@ release: $(OBJS)
 	strip -s build/http
 
 clean:
-	rmdir -rf build
-	rm $(! find . -name "*.o")
+	rm -rf build
+	rm -f $(! find . -name "*.o")
 
 src/main.o: src/server.o
 src/server.o: src/mime_types.o
