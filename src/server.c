@@ -9,7 +9,7 @@
 
 #include <errno.h>
 
-#include <unistd.h> // close
+#include <unistd.h> // close, access
 
 #include "include/http_status_codes.h"
 
@@ -194,8 +194,10 @@ static inline void respond_get_request(int socket_fd, char* buffer) {
 
     if (strncmp(real_root, path, strlen(real_root)) != 0) respond_not_found_OOB_warn(socket_fd, path); // respond_unathorized(socket_fd);
 
+    if (access(path, F_OK) != 0) respond_not_found(socket_fd);
+    if (access(path, R_OK) != 0) respond_unauthorized(socket_fd);
 
-    respond_not_found(socket_fd);
+    exit(EXIT_FAILURE);
 
 }
 
