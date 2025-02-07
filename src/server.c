@@ -98,7 +98,12 @@ static inline void respond_bad_request(int socket_fd) {
     assert(bad_request != NULL);
     memset(bad_request, 0, 256);
 
-    sprintf(bad_request, "HTTP/1.1 %d Bad Request\r\n\r\n", HTTP_BAD_REQUEST);
+    sprintf(bad_request, "HTTP/1.1 %d Bad Request\r\n\
+Server: skibittp\r\n\
+Content-Type: text/plain\r\n\
+Content-Length: 11\r\n\
+\r\n\
+Bad Request", HTTP_BAD_REQUEST);
     send(socket_fd, bad_request, strlen(bad_request), 0);
     free(bad_request);
     shutdown(socket_fd, SHUT_RDWR);
@@ -111,7 +116,12 @@ static inline void respond_not_found(int socket_fd) {
     assert(not_found != NULL);
     memset(not_found, 0, 256);
 
-    sprintf(not_found, "HTTP/1.1 %d Not Found\r\n\r\n", HTTP_NOT_FOUND);
+    sprintf(not_found, "HTTP/1.1 %d Not Found\r\n\
+Server: skibittp\r\n\
+Content-Type: text/plain\r\n\
+Content-Length: 9\r\n\
+\r\n\
+Not Found", HTTP_NOT_FOUND);
     send(socket_fd, not_found, strlen(not_found), 0);
     free(not_found);
     shutdown(socket_fd, SHUT_RDWR);
@@ -125,13 +135,18 @@ static inline void respond_not_found_OOB_warn(int socket_fd, char * path) {
 }
 
 
-static inline void respond_unathorized(int socket_fd) {
+static inline void respond_unauthorized(int socket_fd) {
     printf("GET Path outside of root\n");
     char * unauthorized = malloc(256);
     assert(unauthorized != NULL);
     memset(unauthorized, 0, 256);
 
-    sprintf(unauthorized, "HTTP/1.1 %d Unauthorized\r\n\r\n", HTTP_UNAUTHORIZED);
+    sprintf(unauthorized, "HTTP/1.1 %d Unauthorized\r\n\
+Server: skibittp\r\n\
+Content-Type: text/plain\r\n\
+Content-Length: 12\r\n\
+\r\n\
+Unauthorized", HTTP_UNAUTHORIZED);
     send(socket_fd, unauthorized, strlen(unauthorized), 0);
     free(unauthorized);
     shutdown(socket_fd, SHUT_RDWR);
@@ -178,6 +193,9 @@ static inline void respond_get_request(int socket_fd, char* buffer) {
     if (realpath(requested_path, path) == NULL) respond_not_found(socket_fd);
 
     if (strncmp(real_root, path, strlen(real_root)) != 0) respond_not_found_OOB_warn(socket_fd, path); // respond_unathorized(socket_fd);
+
+
+    respond_not_found(socket_fd);
 
 }
 
