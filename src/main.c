@@ -39,6 +39,9 @@ char * root = NULL;
 char * real_root = NULL;
 char * ip_str = NULL;
 
+char ip_client[16] = {0}; // max ipv4 text len
+struct sockaddr_in addr = {0};
+
 void terminate() {
     fprintf(stderr, "Recieved SIGINT, exiting...\n");
     shutdown(socket_fd, SHUT_RDWR);
@@ -118,7 +121,7 @@ int main(int argc, char** argv) {
 
     setsockopt(socket_fd, SOL_SOCKET, SO_REUSEADDR, &true, sizeof(int));
 
-    struct sockaddr_in addr = {
+    addr = (struct sockaddr_in){
         .sin_addr = ip,
         .sin_port = port,
         .sin_family = AF_INET,
@@ -133,8 +136,6 @@ int main(int argc, char** argv) {
     unsigned int addr_size = sizeof(struct sockaddr_in);
 
     int conn_fd = -1;
-
-    char ip_client[16]; // max ipv4 text len
     
     assert(listen(socket_fd, 32) != -1);
 
@@ -146,15 +147,17 @@ int main(int argc, char** argv) {
             shutdown(conn_fd, SHUT_RDWR);
             close(conn_fd);
         }
+        
+        child_count ++;
+        inet_ntop(addr.sin_family, &addr.sin_addr, ip_client, 16);
+        fprintf(stderr, "Recieved connection from %s:%d\n",ip_client, htons(addr.sin_port));
+
         switch (fork()) {
             case 0: // child
                 server(conn_fd, addr);
                 exit(EXIT_SUCCESS);
                 break;
             default:
-                child_count ++;
-                inet_ntop(addr.sin_family, &addr.sin_addr, ip_client, 16);
-                fprintf(stderr, "Recieved connection from %s:%d\n",ip_client, htons(addr.sin_port));
                 close(conn_fd);
                 break;
         }

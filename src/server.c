@@ -4,6 +4,7 @@
 #include <assert.h>
 #include <netinet/in.h> // sockaddr_in
 #include <sys/socket.h> // recv, setsockopt
+#include <sys/stat.h> // stat
 
 #include <string.h> // memset, strncmp
 
@@ -12,10 +13,17 @@
 #include <unistd.h> // close, access
 
 #include "include/http_status_codes.h"
+#include "include/mime_types.h"
 
 #define MAX_TIMEOUT 3
 
-#define MAX_REQUEST_SIZE (1024*1024) // 1 MB
+#define MAX_REQUEST_SIZE (25*1024*1024) // 25 MB
+
+char * buffer = NULL, * out = NULL, * path = NULL;
+
+#define free(a) {free(a); a = NULL;}
+#define exit(a) {free(real_root); free(buffer); free(out); free(path); exit(a);}
+
 
 static inline void respond(char * buffer, int socket_fd);
 
@@ -24,6 +32,9 @@ static inline void respond(char * buffer, int socket_fd);
 extern const int true;
 
 extern char * real_root;
+
+extern char ip_client[16];
+extern struct sockaddr_in addr;
 
 void server(int socket_fd, struct sockaddr_in addr) {
     struct timeval time = {
@@ -36,7 +47,7 @@ void server(int socket_fd, struct sockaddr_in addr) {
 
     setsockopt(socket_fd, SOL_SOCKET, SO_REUSEADDR, &true, sizeof(int));
 
-    char * buffer = malloc(MAX_REQUEST_SIZE);
+    buffer = malloc(MAX_REQUEST_SIZE);
     assert(buffer != NULL);
 
     int recv_amount;
@@ -79,7 +90,10 @@ void server(int socket_fd, struct sockaddr_in addr) {
     return;
 }
 
+#define SERVER_NAME "skibittp"
+
 static inline void respond_not_implemented(int socket_fd) {
+    fprintf(stderr, "501 Not Implemented\n");
     char * not_implemented = malloc(256);
     assert(not_implemented != NULL);
     memset(not_implemented, 0, 256);
@@ -93,17 +107,17 @@ static inline void respond_not_implemented(int socket_fd) {
 }
 
 static inline void respond_bad_request(int socket_fd) {
-    printf("Recieved malformed request\n");
+    fprintf(stderr, "400 Recieved malformed request\n");
     char * bad_request = malloc(256);
     assert(bad_request != NULL);
     memset(bad_request, 0, 256);
 
     sprintf(bad_request, "HTTP/1.1 %d Bad Request\r\n\
-Server: skibittp\r\n\
+Server: %s\r\n\
 Content-Type: text/plain\r\n\
 Content-Length: 11\r\n\
 \r\n\
-Bad Request", HTTP_BAD_REQUEST);
+Bad Request", HTTP_BAD_REQUEST, SERVER_NAME);
     send(socket_fd, bad_request, strlen(bad_request), 0);
     free(bad_request);
     shutdown(socket_fd, SHUT_RDWR);
@@ -112,16 +126,17 @@ Bad Request", HTTP_BAD_REQUEST);
 }
 
 static inline void respond_not_found(int socket_fd) {
+    fprintf(stderr, "404 Not Found\n");
     char * not_found = malloc(256);
     assert(not_found != NULL);
     memset(not_found, 0, 256);
 
     sprintf(not_found, "HTTP/1.1 %d Not Found\r\n\
-Server: skibittp\r\n\
+Server: %s\r\n\
 Content-Type: text/plain\r\n\
 Content-Length: 9\r\n\
 \r\n\
-Not Found", HTTP_NOT_FOUND);
+Not Found", HTTP_NOT_FOUND, SERVER_NAME);
     send(socket_fd, not_found, strlen(not_found), 0);
     free(not_found);
     shutdown(socket_fd, SHUT_RDWR);
@@ -129,31 +144,49 @@ Not Found", HTTP_NOT_FOUND);
     exit(EXIT_SUCCESS);
 }
 
-static inline void respond_not_found_OOB_warn(int socket_fd, char * path) {
-    fprintf(stderr, "WARNING: Tried to read outside of webroot: %s\n", path);
+static inline void respond_not_found_OOB_warn(int socket_fd) {
+    fprintf(stderr, "outside of webroot ");
     respond_not_found(socket_fd);
 }
 
 
-static inline void respond_unauthorized(int socket_fd) {
-    printf("GET Path outside of root\n");
-    char * unauthorized = malloc(256);
-    assert(unauthorized != NULL);
-    memset(unauthorized, 0, 256);
+static inline void respond_forbidden(int socket_fd) {
+    fprintf(stderr, "403 Forbidden\n");
+    char * forbidden = malloc(256);
+    assert(forbidden != NULL);
+    memset(forbidden, 0, 256);
 
-    sprintf(unauthorized, "HTTP/1.1 %d Unauthorized\r\n\
-Server: skibittp\r\n\
+    sprintf(forbidden, "HTTP/1.1 %d Forbidden\r\n\
+Server: %s\r\n\
 Content-Type: text/plain\r\n\
-Content-Length: 12\r\n\
+Content-Length: 9\r\n\
 \r\n\
-Unauthorized", HTTP_UNAUTHORIZED);
-    send(socket_fd, unauthorized, strlen(unauthorized), 0);
-    free(unauthorized);
+Forbidden", HTTP_FORBIDDEN, SERVER_NAME);
+    send(socket_fd, forbidden, strlen(forbidden), 0);
+    free(forbidden);
     shutdown(socket_fd, SHUT_RDWR);
     close(socket_fd);
     exit(EXIT_SUCCESS);
 }
 
+static inline void respond_content_too_large(int socket_fd) {
+    fprintf(stderr, "413 Requested/uploaded resource too large\n");
+    char * ct_large = malloc(256);
+    assert(ct_large != NULL);
+    memset(ct_large, 0, 256);
+
+    sprintf(ct_large, "HTTP/1.1 %d Content Too Large\r\n\
+Server: %s\r\n\
+Content-Type: text/plain\r\n\
+Content-Length: 17\r\n\
+\r\n\
+Content too large", HTTP_CONTENT_TOO_LARGE, SERVER_NAME);
+    send(socket_fd, ct_large, strlen(ct_large), 0);
+    free(ct_large);
+    shutdown(socket_fd, SHUT_RDWR);
+    close(socket_fd);
+    exit(EXIT_SUCCESS);
+}
 
 static inline void respond_get_request(int socket_fd, char* buffer) {
     int path_len = strchrnul(buffer, '\n') - strchr(buffer, ' ');
@@ -161,7 +194,7 @@ static inline void respond_get_request(int socket_fd, char* buffer) {
     char * line = malloc(path_len);
     char * http_version = malloc(path_len);
     char * requested_path = malloc(PATH_MAX+strlen(real_root)+1);
-    char * path = malloc(PATH_MAX);
+    path = malloc(PATH_MAX);
 
     assert(line != NULL);
     assert(http_version != NULL);
@@ -176,9 +209,6 @@ static inline void respond_get_request(int socket_fd, char* buffer) {
     strcpy(requested_path, real_root);
     requested_path[strlen(real_root)] = '/';
 
-    char * out = malloc(MAX_REQUEST_SIZE);
-    assert(out != NULL);
-
     if (strncmp(buffer, "HEAD ", 4) == 0) {
         if (sscanf(buffer, "HEAD %s %s\r\n", line, http_version) != 2 || strncmp(http_version, "HTTP/1.1", max(strlen(http_version), 8)) != 0) respond_bad_request(socket_fd); 
     } else {
@@ -190,14 +220,57 @@ static inline void respond_get_request(int socket_fd, char* buffer) {
 
     strcpy(requested_path+strlen(real_root)+1, line);
 
-    if (realpath(requested_path, path) == NULL) respond_not_found(socket_fd);
+    fprintf(stderr, "[%s:%d] GET %s -> ", ip_client, htons(addr.sin_port), requested_path);
 
-    if (strncmp(real_root, path, strlen(real_root)) != 0) respond_not_found_OOB_warn(socket_fd, path); // respond_unathorized(socket_fd);
+    free(line);
+    free(http_version);
+
+    if (realpath(requested_path, path) == NULL) {
+        free(requested_path);
+        respond_not_found(socket_fd);
+    }
+    free(requested_path);
+
+    if (strncmp(real_root, path, strlen(real_root)) != 0) respond_not_found_OOB_warn(socket_fd); // respond_unathorized(socket_fd);
 
     if (access(path, F_OK) != 0) respond_not_found(socket_fd);
-    if (access(path, R_OK) != 0) respond_unauthorized(socket_fd);
+    if (access(path, R_OK) != 0) respond_forbidden(socket_fd);
 
-    exit(EXIT_FAILURE);
+    struct stat file_stat;
+    stat(path, &file_stat);
+
+    if (S_ISDIR(file_stat.st_mode)) respond_forbidden(socket_fd);
+
+    out = malloc(MAX_REQUEST_SIZE);
+    assert(out != NULL);
+    memset(out, 0, MAX_REQUEST_SIZE);
+
+    FILE * file_fd = fopen(path, "r");
+    assert(file_fd != NULL); // handled by access(..., R_OK);
+
+    fseek(file_fd, 0, SEEK_END);
+
+    size_t file_len = ftell(file_fd);
+    rewind(file_fd);
+
+    sprintf(out, "HTTP/1.1 %d OK\r\nServer: %s\r\nContent-Type: %s\r\nContent-Length: %lu\r\n\r\n", HTTP_OK, SERVER_NAME, identify_mime_type(path), file_len);
+
+    int header_size = strlen(out);
+
+    if (file_len + header_size > MAX_REQUEST_SIZE) {fclose(file_fd); respond_content_too_large(socket_fd);}
+
+    fread(out+header_size, 1, file_len, file_fd);
+    free(path);
+    fclose(file_fd);
+
+    fprintf(stderr, "200\n");
+
+    send(socket_fd, out, header_size+file_len, 0);
+
+    close(socket_fd);
+    free(out);
+
+    exit(EXIT_SUCCESS);
 
 }
 
