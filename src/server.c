@@ -209,7 +209,10 @@ static inline void respond_get_request(int socket_fd, char* buffer) {
     strcpy(requested_path, real_root);
     requested_path[strlen(real_root)] = '/';
 
-    if (strncmp(buffer, "HEAD ", 4) == 0) {
+    char is_head = 0;
+
+    if (strncmp(buffer, "HEAD ", 5) == 0) {
+        is_head = 1;
         if (sscanf(buffer, "HEAD %s %s\r\n", line, http_version) != 2 || strncmp(http_version, "HTTP/1.1", max(strlen(http_version), 8)) != 0) respond_bad_request(socket_fd); 
     } else {
         if (sscanf(buffer, "GET %s %s\r\n", line, http_version) != 2 || strncmp(http_version, "HTTP/1.1", max(strlen(http_version), 8)) != 0) respond_bad_request(socket_fd);
@@ -218,9 +221,11 @@ static inline void respond_get_request(int socket_fd, char* buffer) {
     char * get_parameters = strchr(line, '?');
     if (get_parameters != NULL) *get_parameters = '\0';
 
+    if (strncmp(line, "/", max(strlen(line), 1)) == 0) strcpy(line, "/index.html");
+    
     strcpy(requested_path+strlen(real_root)+1, line);
 
-    fprintf(stderr, "[%s:%d] GET %s -> ", ip_client, htons(addr.sin_port), requested_path);
+    fprintf(stderr, "[%s:%d] %s %s -> ", ip_client, htons(addr.sin_port), is_head?"HEAD":"GET", requested_path);
 
     free(line);
     free(http_version);
@@ -245,24 +250,31 @@ static inline void respond_get_request(int socket_fd, char* buffer) {
     assert(out != NULL);
     memset(out, 0, MAX_REQUEST_SIZE);
 
-    FILE * file_fd = fopen(path, "r");
-    assert(file_fd != NULL); // handled by access(..., R_OK);
+    int header_size;
+    size_t file_len;
+    if (!is_head) {
+        FILE * file_fd = fopen(path, "r");
+        assert(file_fd != NULL); // handled by access(..., R_OK);
 
-    fseek(file_fd, 0, SEEK_END);
+        fseek(file_fd, 0, SEEK_END);
 
-    size_t file_len = ftell(file_fd);
-    rewind(file_fd);
+        file_len = ftell(file_fd);
+        rewind(file_fd);
 
-    sprintf(out, "HTTP/1.1 %d OK\r\nServer: %s\r\nContent-Type: %s\r\nContent-Length: %lu\r\n\r\n", HTTP_OK, SERVER_NAME, identify_mime_type(path), file_len);
+        sprintf(out, "HTTP/1.1 %d OK\r\nServer: %s\r\nContent-Type: %s\r\nContent-Length: %lu\r\n\r\n", HTTP_OK, SERVER_NAME, identify_mime_type(path), file_len);
 
-    int header_size = strlen(out);
+        header_size = strlen(out);
 
-    if (file_len + header_size > MAX_REQUEST_SIZE) {fclose(file_fd); respond_content_too_large(socket_fd);}
+        if (file_len + header_size > MAX_REQUEST_SIZE) {fclose(file_fd); respond_content_too_large(socket_fd);}
 
-    fread(out+header_size, 1, file_len, file_fd);
-    free(path);
-    fclose(file_fd);
-
+        fread(out+header_size, 1, file_len, file_fd);
+        free(path);
+        fclose(file_fd);
+    } else {
+        sprintf(out, "HTTP/1.1 %d OK\r\nServer: %s\r\nContent-Type: %s\r\n\r\n", HTTP_OK, SERVER_NAME, identify_mime_type(path));
+        header_size = strlen(out);
+        file_len = 0;
+    }
     fprintf(stderr, "200\n");
 
     send(socket_fd, out, header_size+file_len, 0);
