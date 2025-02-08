@@ -1,12 +1,12 @@
-#include <linux/limits.h>
-#include <stdio.h>
-#include <stdlib.h>
+#include <stdio.h> // fopen, ftell, rewind, fread
+#include <stdlib.h> // malloc, free
 #include <assert.h>
 #include <netinet/in.h> // sockaddr_in
 #include <sys/socket.h> // recv, setsockopt
 #include <sys/stat.h> // stat
 
 #include <string.h> // memset, strncmp
+#include <dirent.h> // opendir, readdir
 
 #include <errno.h>
 
@@ -17,12 +17,12 @@
 
 #define MAX_TIMEOUT 3
 
-#define MAX_REQUEST_SIZE (25*1024*1024) // 25 MB
+#define MAX_REQUEST_SIZE (1500-14-20-32) // Default MTU - ethernet II - ipv4 - tcp header
 
-char * buffer = NULL, * out = NULL, * path = NULL;
+char * buffer = NULL, * out = NULL, * path = NULL, * line = NULL, * http_version = NULL, * requested_path = NULL;
 
 #define free(a) {free(a); a = NULL;}
-#define exit(a) {free(real_root); free(buffer); free(out); free(path); exit(a);}
+#define exit(a) {free(real_root); free(buffer); free(out); free(path); free(line); free(http_version); free(requested_path); exit(a);}
 
 
 static inline void respond(char * buffer, int socket_fd);
@@ -188,12 +188,16 @@ Content too large", HTTP_CONTENT_TOO_LARGE, SERVER_NAME);
     exit(EXIT_SUCCESS);
 }
 
-static inline void respond_get_request(int socket_fd, char* buffer) {
-    int path_len = strchrnul(buffer, '\n') - strchr(buffer, ' ');
+char * render_folder(char * path);
 
-    char * line = malloc(path_len);
-    char * http_version = malloc(path_len);
-    char * requested_path = malloc(PATH_MAX+strlen(real_root)+1);
+static inline void respond_get_request(int socket_fd, char* buffer) {
+    if (strchrnul(buffer, '\r') != strchrnul(buffer, '\n') - 1) respond_bad_request(socket_fd);
+    
+    int path_len = strchrnul(buffer, '\n') - buffer;
+
+    line = malloc(path_len+1);
+    http_version = malloc(path_len+1);
+    requested_path = malloc(PATH_MAX+strlen(real_root)+1);
     path = malloc(PATH_MAX);
 
     assert(line != NULL);
@@ -222,7 +226,7 @@ static inline void respond_get_request(int socket_fd, char* buffer) {
     if (get_parameters != NULL) *get_parameters = '\0';
 
     if (strncmp(line, "/", max(strlen(line), 1)) == 0) strcpy(line, "/index.html");
-    
+
     strcpy(requested_path+strlen(real_root)+1, line);
 
     fprintf(stderr, "[%s:%d] %s %s -> ", ip_client, htons(addr.sin_port), is_head?"HEAD":"GET", requested_path);
@@ -244,7 +248,7 @@ static inline void respond_get_request(int socket_fd, char* buffer) {
     struct stat file_stat;
     stat(path, &file_stat);
 
-    if (S_ISDIR(file_stat.st_mode)) respond_forbidden(socket_fd);
+    if (S_ISDIR(file_stat.st_mode)) render_folder(path); //exits
 
     out = malloc(MAX_REQUEST_SIZE);
     assert(out != NULL);
@@ -261,13 +265,23 @@ static inline void respond_get_request(int socket_fd, char* buffer) {
         file_len = ftell(file_fd);
         rewind(file_fd);
 
-        sprintf(out, "HTTP/1.1 %d OK\r\nServer: %s\r\nContent-Type: %s\r\nContent-Length: %lu\r\n\r\n", HTTP_OK, SERVER_NAME, identify_mime_type(path), file_len);
+        sprintf(out, "HTTP/1.1 %d OK\r\nServer: %s\r\nConnection: keep-alive\r\nContent-Type: %s\r\nContent-Length: %lu\r\n\r\n", HTTP_OK, SERVER_NAME, identify_mime_type(path), file_len);
 
         header_size = strlen(out);
 
-        if (file_len + header_size > MAX_REQUEST_SIZE) {fclose(file_fd); respond_content_too_large(socket_fd);}
+        if (file_len + header_size <= MAX_REQUEST_SIZE) {
+            fread(out+header_size, 1, MAX_REQUEST_SIZE-header_size, file_fd);
+            send(socket_fd, out, header_size+file_len, 0);
+        } else {
+            send(socket_fd, out, strlen(out), 0);
+            for (int i = 0; i<file_len; i+=MAX_REQUEST_SIZE) {
+                fread(out, 1, MAX_REQUEST_SIZE, file_fd);
+                send(socket_fd, out, MAX_REQUEST_SIZE, 0);
+            }
+            fread(out, 1, file_len%MAX_REQUEST_SIZE, file_fd);
+            send(socket_fd, out, file_len%MAX_REQUEST_SIZE, 0);
+        }
 
-        fread(out+header_size, 1, file_len, file_fd);
         free(path);
         fclose(file_fd);
     } else {
@@ -276,8 +290,6 @@ static inline void respond_get_request(int socket_fd, char* buffer) {
         file_len = 0;
     }
     fprintf(stderr, "200\n");
-
-    send(socket_fd, out, header_size+file_len, 0);
 
     close(socket_fd);
     free(out);
@@ -297,5 +309,31 @@ static inline void respond(char * buffer, int socket_fd) {
     } else {
         fprintf(stderr, "Recieved an invalid request!\n");
         respond_not_implemented(socket_fd);
+    }
+}
+
+
+#define INDEX_SITE_HEADER "<!DOCTYPE html><h1>Listing of %s</h1><style>tr * {width: 20vw; overflow: hidden;} img {width: 1rem}</style><table><tr><th>Name</th><th>Last Modified</th><th>Size</th></tr></table><hr><table>%s</table>"
+#define FILE_ENTRY "<tr><td><img src=\"%s\"><a href=\"%s\">%s</a></td><td>%s</td><td>%lu</td></tr>"
+
+#define FOLDER_ICON "data:image/bmp;base64, Qk1+AAAAAAAAAD4AAAAoAAAAEAAAABAAAAABAAEAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP///wAAAAAAf/4AAH/+AAB//gAAf/4AAH/+AAB//gAAf/4AAH/+AAB//gAAf/4AAAAAAAB97wAAfA8AAH3/AAAB/wAA"
+#define FILE_ICON "data:image/bmp;base64, Qk1+AAAAAAAAAD4AAAAoAAAAEAAAABAAAAABAAEAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP///wAAAAAAf/4AAH/+AAB+fgAAfn4AAH/+AAB+fgAAfn4AAH8+AAB/ngAAe54AAHmQAAB8NgAAf/UAAH/zAAAABwAA"
+
+
+
+char * render_folder(char * path) {
+    exit(EXIT_FAILURE);
+    char * files = malloc(10*1024*1024);
+    assert(files != NULL);
+    memset(files, 0, 10*1024*1024);
+
+    struct stat file_stat;
+    stat(path, &file_stat);
+    DIR * directory = opendir(path);
+    assert(directory != NULL);
+
+    struct dirent * entry = NULL;
+    while ((entry = readdir(directory)) != NULL) {
+         
     }
 }
