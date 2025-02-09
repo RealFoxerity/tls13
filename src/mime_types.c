@@ -8,7 +8,7 @@ const char default_mime[] = "application/octet-stream";
 const char * file_extension[] = {".aac", ".apng", ".arc", ".avi", ".bin", ".bmp", ".bz", ".bz2", ".css", ".csv", ".doc", ".docx",
                                 ".eot", ".epub", ".gz", ".gif", ".html", ".htm", ".ico", ".jar", ".jpeg", ".jpg", ".js", ".json",
                                 ".mp3", ".mp4", ".mpeg", ".odp", ".ods", ".odt", ".oga", ".ogv", ".ogx", ".opus", ".otf", ".png", 
-                                ".pdf,", ".php", ".ppt", ".pptx", ".rar",".rtf", ".sh", ".svg", ".tar", ".tiff", ".tif", ".txt", 
+                                ".pdf", ".php", ".ppt", ".pptx", ".rar",".rtf", ".sh", ".svg", ".tar", ".tiff", ".tif", ".txt", 
                                 ".wav", ".weba", ".webm", ".webp", ".xhtml", ".xls", ".xlsx", ".xml", ".zip", ".7z"};
 
 const char * mime_types[] = {

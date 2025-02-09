@@ -7,7 +7,7 @@
 #include <time.h> // ctime
 
 #include <string.h> // memset, strncmp
-#include <dirent.h> // opendir, readdir
+#include <dirent.h> // scandir
 
 #include <errno.h>
 
