@@ -333,7 +333,7 @@ static inline void respond(char * buffer, int socket_fd) {
 }
 
 
-#define INDEX_SITE_HEADER "<!DOCTYPE html><h1>Listing of %s</h1><style>tr * {width: 20vw; overflow: hidden;} img {width: 1rem}</style><table><tr><th>Name</th><th>Last Modified</th><th>Size</th></tr></table><hr><table>%s</table>"
+#define INDEX_SITE_HEADER "<!DOCTYPE html><meta charset=\"UTF-8\"><h1>Listing of %s</h1><style>tr * {width: 20vw; overflow: hidden;} img {width: 1rem}</style><table><tr><th>Name</th><th>Last Modified</th><th>Size</th></tr></table><hr><table>%s</table><footer>© 2025, SkibiTTP, Foxerity Industries, Sponsored by YapMaster Froš</footer>"
 #define FILE_ENTRY "<tr><td><img src=\"%s\"><a href=\"%s\">%s</a></td><td>%s</td><td>%lu</td></tr>"
 
 #define FOLDER_ICON "data:image/bmp;base64, Qk1+AAAAAAAAAD4AAAAoAAAAEAAAABAAAAABAAEAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP///wAAAAAAf/4AAH/+AAB//gAAf/4AAH/+AAB//gAAf/4AAH/+AAB//gAAf/4AAAAAAAB97wAAfA8AAH3/AAAB/wAA"
