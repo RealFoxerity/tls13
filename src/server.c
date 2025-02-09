@@ -1,9 +1,11 @@
+#include <linux/limits.h>
 #include <stdio.h> // fopen, ftell, rewind, fread
 #include <stdlib.h> // malloc, free
 #include <assert.h>
 #include <netinet/in.h> // sockaddr_in
 #include <sys/socket.h> // recv, setsockopt
 #include <sys/stat.h> // stat
+#include <time.h> // ctime
 
 #include <string.h> // memset, strncmp
 #include <dirent.h> // opendir, readdir
@@ -248,11 +250,26 @@ static inline void respond_get_request(int socket_fd, char* buffer) {
     struct stat file_stat;
     stat(path, &file_stat);
 
-    if (S_ISDIR(file_stat.st_mode)) render_folder(path); //exits
 
     out = malloc(MAX_REQUEST_SIZE);
     assert(out != NULL);
     memset(out, 0, MAX_REQUEST_SIZE);
+
+
+    if (S_ISDIR(file_stat.st_mode)) 
+    {   
+        char * listing = render_folder(path); 
+        sprintf(out, "HTTP/1.1 %d OK\r\nServer: %s\r\nConnection: keep-alive\r\nContent-Type: text/html\r\nContent-Length: %lu\r\n\r\n", HTTP_OK, SERVER_NAME, strlen(listing));
+        send(socket_fd, out, strlen(out), 0);
+        int i = 0;
+        for (; i<strlen(listing); i+=MAX_REQUEST_SIZE) {
+            send(socket_fd, listing+i, MAX_REQUEST_SIZE, 0);
+        }
+        send(socket_fd, listing+i, strlen(listing)%MAX_REQUEST_SIZE, 0);
+        free(listing);
+
+        goto END;
+    }
 
     int header_size;
     size_t file_len;
@@ -289,6 +306,9 @@ static inline void respond_get_request(int socket_fd, char* buffer) {
         header_size = strlen(out);
         file_len = 0;
     }
+
+    END:
+
     fprintf(stderr, "200\n");
 
     close(socket_fd);
@@ -320,20 +340,64 @@ static inline void respond(char * buffer, int socket_fd) {
 #define FILE_ICON "data:image/bmp;base64, Qk1+AAAAAAAAAD4AAAAoAAAAEAAAABAAAAABAAEAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP///wAAAAAAf/4AAH/+AAB+fgAAfn4AAH/+AAB+fgAAfn4AAH8+AAB/ngAAe54AAHmQAAB8NgAAf/UAAH/zAAAABwAA"
 
 
+#define MAX_FILE_ENTRY_LEN 1024
+#define MAX_LISTING_LEN 10*1024*1024
+
+
+
+unsigned int strdiff(char* restrict a, char* restrict b) {
+    assert(a != NULL);
+    assert(b != NULL);
+
+    unsigned int i = 0;
+    for (; i < max(strlen(a), strlen(b)); i++) {
+        if (a[i] != b[i]) break;
+    }
+    return i;
+}
+
 
 char * render_folder(char * path) {
-    exit(EXIT_FAILURE);
-    char * files = malloc(10*1024*1024);
+    assert(path!=NULL);
+
+    unsigned int path_off = strlen(path)+1; // todo: fix
+    path[path_off-1] = '/';
+
+    char * files = malloc(MAX_LISTING_LEN);
+    char * listing = malloc(MAX_LISTING_LEN+sizeof(INDEX_SITE_HEADER)+PATH_MAX);
+
+    unsigned long files_buffer_ptr = 0;
+
     assert(files != NULL);
-    memset(files, 0, 10*1024*1024);
+    assert(listing != NULL);
+    memset(files, 0, MAX_LISTING_LEN);
+    memset(listing, 0, MAX_LISTING_LEN+sizeof(INDEX_SITE_HEADER)+PATH_MAX);
+
+    //
 
     struct stat file_stat;
-    stat(path, &file_stat);
     DIR * directory = opendir(path);
     assert(directory != NULL);
 
+    char * time_m = NULL;
+
     struct dirent * entry = NULL;
-    while ((entry = readdir(directory)) != NULL) {
-         
+    while ((entry = readdir(directory)) != NULL) { // DO NOT FREE() entry AND time_m; SEE MAN 3 READDIR NOTES
+        strcpy(path+path_off, entry->d_name); // no need to check since the file wouldn't exist in the first place if len(path) > PATH_MAX
+        stat(path, &file_stat);
+
+        time_m = ctime(&file_stat.st_mtim.tv_sec);
+
+        if (files_buffer_ptr+MAX_FILE_ENTRY_LEN > MAX_LISTING_LEN) {strcpy(files+files_buffer_ptr, "..."); break;}
+
+        sprintf(files+files_buffer_ptr, FILE_ENTRY, S_ISDIR(file_stat.st_mode)?FOLDER_ICON:FILE_ICON, path+strdiff(path, real_root), entry->d_name, time_m, file_stat.st_size);
+        files_buffer_ptr += strlen(files+files_buffer_ptr);
     }
+    closedir(directory);
+
+    path[path_off] = '\0';
+    sprintf(listing, INDEX_SITE_HEADER, path+strdiff(path, real_root), files); // strcmp is negative in this case
+    free(files);
+
+    return listing;
 }
