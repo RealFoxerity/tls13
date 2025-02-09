@@ -1,4 +1,3 @@
-#include <linux/limits.h>
 #include <stdio.h> // fopen, ftell, rewind, fread
 #include <stdlib.h> // malloc, free
 #include <assert.h>
@@ -333,7 +332,7 @@ static inline void respond(char * buffer, int socket_fd) {
 }
 
 
-#define INDEX_SITE_HEADER "<!DOCTYPE html><meta charset=\"UTF-8\"><h1>Listing of %s</h1><style>tr * {width: 20vw; overflow: hidden;} img {width: 1rem}</style><table><tr><th>Name</th><th>Last Modified</th><th>Size</th></tr></table><hr><table>%s</table><footer>© 2025, SkibiTTP, Foxerity Industries, Sponsored by YapMaster Froš</footer>"
+#define INDEX_SITE_HEADER "<!DOCTYPE html><meta charset=\"UTF-8\"><h1>Listing of %s</h1><style>tr * {width: 20vw; overflow: hidden;} img {width: 1rem}</style><table><tr><th>Name</th><th>Last Modified</th><th>Size</th></tr></table><hr><table>%s</table><footer>© 2025, SkibiTTP, Foxerity Industries, Sponsored by Yapmaster Froš & Stolen plush axolotls in 042</footer>"
 #define FILE_ENTRY "<tr><td><img src=\"%s\"><a href=\"%s\">%s</a></td><td>%s</td><td>%lu</td></tr>"
 
 #define FOLDER_ICON "data:image/bmp;base64, Qk1+AAAAAAAAAD4AAAAoAAAAEAAAABAAAAABAAEAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP///wAAAAAAf/4AAH/+AAB//gAAf/4AAH/+AAB//gAAf/4AAH/+AAB//gAAf/4AAAAAAAB97wAAfA8AAH3/AAAB/wAA"
@@ -373,30 +372,34 @@ char * render_folder(char * path) {
     memset(files, 0, MAX_LISTING_LEN);
     memset(listing, 0, MAX_LISTING_LEN+sizeof(INDEX_SITE_HEADER)+PATH_MAX);
 
-    //
-
     struct stat file_stat;
-    DIR * directory = opendir(path);
-    assert(directory != NULL);
 
     char * time_m = NULL;
 
-    struct dirent * entry = NULL;
-    while ((entry = readdir(directory)) != NULL) { // DO NOT FREE() entry AND time_m; SEE MAN 3 READDIR NOTES
-        strcpy(path+path_off, entry->d_name); // no need to check since the file wouldn't exist in the first place if len(path) > PATH_MAX
+    struct dirent ** entries = NULL;
+    int entry_count = scandir(path, &entries, NULL, alphasort);
+
+    assert(entry_count != -1); // should never happen due to checking with access and S_ISDIR before this function
+
+    for(int i = 0; i<entry_count; i++) { // DO NOT FREE() time_m; SEE MAN 3 CTIME NOTES
+        strcpy(path+path_off, entries[i]->d_name); // no need to check since the file wouldn't exist in the first place if len(path) > PATH_MAX
         stat(path, &file_stat);
 
         time_m = ctime(&file_stat.st_mtim.tv_sec);
 
         if (files_buffer_ptr+MAX_FILE_ENTRY_LEN > MAX_LISTING_LEN) {strcpy(files+files_buffer_ptr, "..."); break;}
 
-        sprintf(files+files_buffer_ptr, FILE_ENTRY, S_ISDIR(file_stat.st_mode)?FOLDER_ICON:FILE_ICON, path+strdiff(path, real_root), entry->d_name, time_m, file_stat.st_size);
+        sprintf(files+files_buffer_ptr, FILE_ENTRY, S_ISDIR(file_stat.st_mode)?FOLDER_ICON:FILE_ICON, path+strdiff(path, real_root), entries[i]->d_name, time_m, file_stat.st_size);
         files_buffer_ptr += strlen(files+files_buffer_ptr);
     }
-    closedir(directory);
+
+    while (entry_count--) {
+        free(entries[entry_count]);
+    }
+    free(entries);
 
     path[path_off] = '\0';
-    sprintf(listing, INDEX_SITE_HEADER, path+strdiff(path, real_root), files); // strcmp is negative in this case
+    sprintf(listing, INDEX_SITE_HEADER, path+strdiff(path, real_root), files);
     free(files);
 
     return listing;
