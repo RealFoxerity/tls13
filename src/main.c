@@ -68,7 +68,14 @@ int main(int argc, char** argv) {
     signal(SIGINT, terminate);
 
     for (int i = 1; i<argc; i++) {
-        if (strcmp("-a", argv[i]) == 0) {
+        if (strcmp("--help", argv[i]) == 0) {
+            fprintf(stderr, 
+"Usage:\n"
+"%s [-p port] [-a addr] [-r webroot]\n", argv[0]
+);
+exit(EXIT_SUCCESS);
+        }
+        else if (strcmp("-a", argv[i]) == 0) {
             if (i+1 > argc) {
                 fprintf(stderr, "-a requires an argument!\n");
                 exit(EXIT_FAILURE);
