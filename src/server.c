@@ -15,14 +15,12 @@
 
 #include "include/http_status_codes.h"
 #include "include/mime_types.h"
+#include "include/server.h"
 
 #define MAX_TIMEOUT 3
 
-#define MAX_REQUEST_SIZE (1500-14-20-32) // Default MTU - ethernet II - ipv4 - tcp header
-
 char * buffer = NULL, * out = NULL, * path = NULL, * line = NULL, * http_version = NULL, * requested_path = NULL;
 
-#define free(a) {free(a); a = NULL;}
 #define exit(a) {free(real_root); free(buffer); free(out); free(path); free(line); free(http_version); free(requested_path); exit(a);}
 
 
@@ -37,7 +35,7 @@ extern char * real_root;
 extern char ip_client[16];
 extern struct sockaddr_in addr;
 
-void server(int socket_fd, struct sockaddr_in addr) {
+void server(int socket_fd) {
     struct timeval time = {
         .tv_sec = MAX_TIMEOUT,
         .tv_usec = 0

@@ -2,6 +2,11 @@
 #define SERVER_H
 #include <netinet/in.h>
 
-void server(int socket_fd, struct sockaddr_in addr);
+//#define MAX_REQUEST_SIZE (1500-14-20-32) // Default MTU - ethernet II - ipv4 - tcp header
+#define MAX_REQUEST_SIZE (1<<14) // TLS record size, so might as well
+#define free(a) {free(a); a = NULL;} // prevents UAF
+
+void server(int socket_fd);
+void ssl_wrapper(int socket_fd); // tls_wrapper.c
 
 #endif

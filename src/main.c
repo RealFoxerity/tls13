@@ -1,4 +1,3 @@
-#include <asm-generic/socket.h>
 #include <linux/limits.h>
 #include <signal.h>
 #include <stdio.h>
@@ -11,13 +10,15 @@
 #include <sys/socket.h> // all socket and networking
 #include <arpa/inet.h> // htonl, htons, inet_pton, inet_ntop
 #include <netinet/in.h> // sockaddr, sockaddr_in
+#include <sys/select.h>
 
 #include <string.h>
 
 #include <sys/wait.h>
 
-#include <sys/time.h>
 #include <time.h>
+
+#include <errno.h>
 
 #define MAX_CLIENTS 15
 #define DEFAULT_PORT 80
@@ -26,6 +27,7 @@
 #define MAX_LEN_DOMAIN 256
 
 #define MIN(a,b) (a>b?b:a)
+#define MAX(a,b) (a<b?b:a)
 
 const char* default_ip = {"0.0.0.0"};
 const char* default_root = {"./webroot"};
@@ -57,7 +59,8 @@ void terminate() {
     fprintf(stderr, "Recieved SIGINT, exiting...\n");
     shutdown(socket_fd, SHUT_RDWR);
     close(socket_fd);
-    while(wait(NULL) != -1); // wait for all child processes
+    while(wait(NULL) != -1)
+    ; // wait for all child processes
 
     free(real_root);
     
@@ -97,7 +100,7 @@ int main(int argc, char** argv) {
 "-p\t\tPort for http (default 80)\n"
 "-a\t\tAddress to bind to (default 0.0.0.0)\n"
 "-r\t\tRoot of server (default ./webroot/)\n"
-"-d\t\tDomain to handle requests for (* for all) (default *) (for additional domains, launch additional servers)\n"
+// "-d\t\tDomain to handle requests for (* for all) (default *) (anything else will be dropped)\n" // doesn't make sense
 "-s\t\tAlso use HTTP over TLS (HTTPS) (default do not)\n"
 "-c\t\tSSL certificate path\n"
 "-k\t\tSSL private key path\n"
@@ -203,8 +206,8 @@ exit(EXIT_SUCCESS);
         exit(EXIT_FAILURE);
     }
 
-    setsockopt(socket_fd, SOL_SOCKET, SO_REUSEADDR, &true, sizeof(int));
-    setsockopt(socket_fd, SOL_SOCKET, SO_REUSEPORT, &true, sizeof(int));
+    setsockopt(socket_fd, SOL_SOCKET, SO_REUSEADDR, &true, sizeof(int)); // skips the TIME_WAIT state
+    setsockopt(socket_fd, SOL_SOCKET, SO_REUSEPORT, &true, sizeof(int)); // allows to have multiple servers handling multiple domains on the same port
 
     addr = (struct sockaddr_in){
         .sin_addr = ip,
@@ -217,34 +220,35 @@ exit(EXIT_SUCCESS);
         perror("Failed to bind to IP/port! ");
         exit(EXIT_FAILURE);
     }
+    if(ssl) {
+        socket_fd_ssl = socket(AF_INET, SOCK_STREAM, 0);
+        if (socket_fd_ssl < 0) {
+            perror("Failed to create TCP socket!(SSL) ");
+            exit(EXIT_FAILURE);
+        }
 
-    socket_fd_ssl = socket(AF_INET, SOCK_STREAM, 0);
-    if (socket_fd_ssl < 0) {
-        perror("Failed to create TCP socket!(SSL) ");
-        exit(EXIT_FAILURE);
+        setsockopt(socket_fd_ssl, SOL_SOCKET, SO_REUSEADDR, &true, sizeof(int));
+        setsockopt(socket_fd_ssl, SOL_SOCKET, SO_REUSEPORT, &true, sizeof(int));
+
+        addr_ssl = (struct sockaddr_in){
+            .sin_addr = ip,
+            .sin_port = ssl_port,
+            .sin_family = AF_INET,
+            .sin_zero = {0}
+        };
+
+        if (bind(socket_fd_ssl, (struct sockaddr *) &addr_ssl, sizeof(struct sockaddr_in)) < 0) {
+            perror("Failed to bind to IP/port!(SSL) ");
+            exit(EXIT_FAILURE);
+        }
+    
     }
-
-    setsockopt(socket_fd_ssl, SOL_SOCKET, SO_REUSEADDR, &true, sizeof(int));
-    setsockopt(socket_fd_ssl, SOL_SOCKET, SO_REUSEPORT, &true, sizeof(int));
-
-    addr_ssl = (struct sockaddr_in){
-        .sin_addr = ip,
-        .sin_port = ssl_port,
-        .sin_family = AF_INET,
-        .sin_zero = {0}
-    };
-
-    if (bind(socket_fd_ssl, (struct sockaddr *) &addr_ssl, sizeof(struct sockaddr_in)) < 0) {
-        perror("Failed to bind to IP/port!(SSL) ");
-        exit(EXIT_FAILURE);
-    }
-
     unsigned int addr_size = sizeof(struct sockaddr_in);
 
     int conn_fd = -1;
     
     assert(listen(socket_fd, MAX_CLIENTS) != -1);
-    assert(listen(socket_fd_ssl, MAX_CLIENTS) != -1);
+    if (ssl) assert(listen(socket_fd_ssl, MAX_CLIENTS) != -1);
 
     fprintf(stderr, "Running server on %s:%hu\n", ip_str, htons(port));
     if (ssl)
@@ -255,10 +259,34 @@ exit(EXIT_SUCCESS);
     char time_char[256] = {0};
 
 
+    fd_set set;
 
+    FD_ZERO(&set);
+    FD_SET(socket_fd, &set);
+    if (ssl) FD_SET(socket_fd_ssl, &set);
 
+    errno = 0;
 
-    while ((conn_fd = accept(socket_fd, (struct sockaddr *) &addr, &addr_size)) != -1) {
+    char connect_is_ssl = 0;
+
+    while (select(ssl?MAX(socket_fd, socket_fd_ssl)+1:socket_fd+1, &set, NULL, NULL, NULL) != -1 || errno == EINTR) {
+        if (errno == EINTR) {  // select throws EINTR on SIGCHLD from server thread
+            errno = 0;
+            FD_SET(socket_fd, &set);
+            if (ssl) FD_SET(socket_fd_ssl, &set);
+            continue;
+        }
+
+        if (ssl && FD_ISSET(socket_fd_ssl, &set)) {
+            FD_SET(socket_fd, &set);
+            connect_is_ssl = 1;
+            conn_fd = accept(socket_fd_ssl, (struct sockaddr *) &addr, &addr_size);
+        } else {
+            if (ssl) FD_SET(socket_fd_ssl, &set);
+            connect_is_ssl = 0;
+            conn_fd = accept(socket_fd, (struct sockaddr *) &addr, &addr_size);
+        }
+
         if (child_count > MAX_CLIENTS) {
             fprintf(stderr, "WARNING: Maximum client count reached, refusing new connection...\n");
             shutdown(conn_fd, SHUT_RDWR);
@@ -274,7 +302,8 @@ exit(EXIT_SUCCESS);
 
         switch (fork()) {
             case 0: // child
-                server(conn_fd, addr);
+                if (!connect_is_ssl) server(conn_fd);
+                else ssl_wrapper(conn_fd);
                 exit(EXIT_SUCCESS);
                 break;
             default:
@@ -283,5 +312,6 @@ exit(EXIT_SUCCESS);
         }
     } 
 
-    return 0;
+    perror("Server stopped: ");
+    return errno;
 }

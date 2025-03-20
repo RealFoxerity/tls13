@@ -1,7 +1,7 @@
 CC=gcc
 CFLAGS=-O3 -g
 LDFLAGS=
-OBJS=src/main.o src/server.o src/mime_types.o
+OBJS=src/main.o src/server.o src/mime_types.o src/tls_wrapper.o src/tls_extensions.o
 
 all: $(OBJS)
 	mkdir -p build
@@ -18,5 +18,6 @@ clean:
 	rm -rf build
 	rm -f $(! find . -name "*.o")
 
-src/main.o: src/server.o
+src/main.o: src/server.o src/tls_wrapper.o
+src/tls_wrapper.o: src/server.o src/tls_extensions.o
 src/server.o: src/mime_types.o
