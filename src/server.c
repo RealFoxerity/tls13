@@ -46,8 +46,6 @@ void server(int socket_fd, struct sockaddr_in addr) {
         perror("Failed to set recieve timeout ");
     }
 
-    setsockopt(socket_fd, SOL_SOCKET, SO_REUSEADDR, &true, sizeof(int));
-
     buffer = malloc(MAX_REQUEST_SIZE);
     assert(buffer != NULL);
 
