@@ -15,11 +15,20 @@
 
 #include <sys/wait.h>
 
+#include <sys/time.h>
+#include <time.h>
+
 #define MAX_CLIENTS 15
+#define DEFAULT_PORT 80
+#define DEFAULT_PORT_HTTPS 443
+
+#define MAX_LEN_DOMAIN 256
+
+#define MIN(a,b) (a>b?b:a)
 
 const char* default_ip = {"0.0.0.0"};
 const char* default_root = {"./webroot"};
-
+const char* default_domain = "*";
 int child_count = 0;
 
 const int true = 1;
@@ -38,6 +47,7 @@ int socket_fd;
 char * root = NULL;
 char * real_root = NULL;
 char * ip_str = NULL;
+char * domain = NULL;
 
 char ip_client[16] = {0}; // max ipv4 text len
 struct sockaddr_in addr = {0};
@@ -55,12 +65,22 @@ void terminate() {
 
 pid_t server_pid;
 
+char * ssl_priv_key = NULL;
+char * ssl_cert = NULL;
+
+char ssl = 0;
+
+unsigned short ssl_port = 0;
 
 int main(int argc, char** argv) {
+    if (geteuid() == 0) fprintf(stderr, "WARNING: RUNNING AS ROOT\nSET CAP_NET_BIND_SERVICE IF YOU NEED PORT < 1024!\n");
+
     ip_str = (char*)default_ip;
     root = (char*) default_root;
+    domain = (char*) default_domain;
+
     unsigned int ip;
-    short port = htons(8080);
+    short port = htons(DEFAULT_PORT);
 
     server_pid = getpid();
 
@@ -68,15 +88,25 @@ int main(int argc, char** argv) {
     signal(SIGINT, terminate);
 
     for (int i = 1; i<argc; i++) {
-        if (strcmp("--help", argv[i]) == 0) {
+        if (strcmp("--help", argv[i]) == 0 || strcmp("-h", argv[i]) == 0) {
+            help:
             fprintf(stderr, 
 "Usage:\n"
-"%s [-p port] [-a addr] [-r webroot]\n", argv[0]
+"%s [-p port] [-a addr] [-r webroot] [-d domain] (-s -c chain.pem -k privkey.key [-o port2])\n"
+"-p\t\tPort for http (default 80)\n"
+"-a\t\tAddress to bind to (default 0.0.0.0)\n"
+"-r\t\tRoot of server (default ./webroot/)\n"
+"-d\t\tDomain to handle requests for (* for all) (default *)\n"
+"-s\t\tWith SSL (default without)\n"
+"-c\t\tSSL certificate path\n"
+"-k\t\tSSL private key path\n"
+"-o\t\tHTTPS port (default 443)\n"
+, argv[0]
 );
 exit(EXIT_SUCCESS);
         }
         else if (strcmp("-a", argv[i]) == 0) {
-            if (i+1 > argc) {
+            if (i+1 >= argc) {
                 fprintf(stderr, "-a requires an argument!\n");
                 exit(EXIT_FAILURE);
             } 
@@ -84,7 +114,7 @@ exit(EXIT_SUCCESS);
             continue;
         }
         else if (strcmp("-p", argv[i]) == 0) {
-            if (i+1 > argc) {
+            if (i+1 >= argc) {
                 fprintf(stderr, "-p requires an argument!\n");
                 exit(EXIT_FAILURE);
             }
@@ -96,16 +126,56 @@ exit(EXIT_SUCCESS);
             continue;
         }
         else if (strcmp("-r", argv[i]) == 0) {
-            if (i+1 > argc) {
+            if (i+1 >= argc) {
                 fprintf(stderr, "-r requires an argument!\n");
                 exit(EXIT_FAILURE);
             }
             root = argv[++i];
             continue;
+        } else if (strcmp("-s", argv[i]) == 0) {
+            ssl = 1;
+            continue;
+        } else if (strcmp("-c", argv[i]) == 0) {
+            if (i+1 >= argc) {
+                fprintf(stderr, "-c requires an argument!\n");
+                exit(EXIT_FAILURE);
+            }
+            ssl_cert = argv[++i];
+            continue;
+        }else if (strcmp("-k", argv[i]) == 0) {
+            if (i+1 >= argc) {
+                fprintf(stderr, "-k requires an argument!\n");
+                exit(EXIT_FAILURE);
+            }
+            ssl_priv_key = argv[++i];
+            continue;
+        }
+        else if (strcmp("-d", argv[i]) == 0) {
+            if (i+1 >= argc) {
+                fprintf(stderr, "-d requires an argument!\n");
+                exit(EXIT_FAILURE);
+            }
+            domain = argv[++i];
+            continue;
+        }
+        else if (strcmp("-o", argv[i]) == 0) {
+            if (i+1 >= argc) {
+                fprintf(stderr, "-o requires an argument!\n");
+                exit(EXIT_FAILURE);
+            }
+            if (sscanf(argv[++i], "%hu", &ssl_port) != 1) {
+                fprintf(stderr, "Invalid HTTPS port!\n");
+                goto help;
+            }
         }
         else {
             fprintf(stderr, "Warning! Unknown option `%s'!\n", argv[i]);
         }
+    }
+
+    if (ssl && (ssl_cert == NULL || ssl_priv_key == NULL)) {
+        fprintf(stderr, "SSL requires both a certificate and a private key!\n");
+        goto help;
     }
 
     real_root = malloc(PATH_MAX);
@@ -148,6 +218,10 @@ exit(EXIT_SUCCESS);
 
     printf("Running server on %s:%hu\n", ip_str, htons(port));
 
+    time_t conn_time = 0;
+
+    char time_char[256] = {0};
+
     while ((conn_fd = accept(socket_fd, (struct sockaddr *) &addr, &addr_size)) != -1) {
         if (child_count > MAX_CLIENTS) {
             fprintf(stderr, "WARNING: Maximum client count reached, refusing new connection...\n");
@@ -157,7 +231,9 @@ exit(EXIT_SUCCESS);
         
         child_count ++;
         inet_ntop(addr.sin_family, &addr.sin_addr, ip_client, 16);
-        fprintf(stderr, "Recieved connection from %s:%d\n",ip_client, htons(addr.sin_port));
+        time(&conn_time);
+        strncpy(time_char, ctime(&conn_time), MIN(256, strlen(ctime(&conn_time))-1));
+        fprintf(stderr, "[%s] Recieved connection from %s:%d\n", time_char, ip_client, htons(addr.sin_port));
 
         switch (fork()) {
             case 0: // child

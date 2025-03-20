@@ -6,11 +6,13 @@ OBJS=src/main.o src/server.o src/mime_types.o
 all: $(OBJS)
 	mkdir -p build
 	$(CC) $(CFLAGS) $(LDFLAGS) $(OBJS) -o build/http
+	echo Setting CAP_NET_BIND_SERVICE...; (sudo setcap cap_net_bind_service=ep build/http || echo Failed)
 
 release: $(OBJS)
 	mkdir -p build
 	$(CC) $(CFLAGS) $(LDFLAGS) $(OBJS) -o build/http
 	strip -s build/http
+	echo Setting CAP_NET_BIND_SERVICE...; (sudo setcap cap_net_bind_service=ep build/http || echo Failed)
 
 clean:
 	rm -rf build
