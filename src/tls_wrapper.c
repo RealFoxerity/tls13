@@ -163,6 +163,11 @@ int parse_extensions(struct ClientHello CH) { // TODO: parse extentions .... :D
                     fprintf(stderr, "Found SUPPORTED_GROUPS extension, but values are invalid!\n");
                     return 2;
                 } else fprintf(stderr, "Found SUPPORTED_GROUPS extension\n");
+                break;
+            case ET_SESSION_TICKET_IGNORE:
+                fprintf(stderr, "Found SESSION_TICKET extension\n");
+                break;
+            
             default:
                 fprintf(stderr, "Unknown extension id: %hx\n", ext);
         }
