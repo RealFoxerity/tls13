@@ -57,6 +57,21 @@ enum ExtensionTypes { // ushort
     ET_KEY_SHARE = 51,                              /* RFC 8446 */
 };
 
+enum NamedGroups { // key share, ushort
+    NG_SECP256R1 = 0x0017,
+    NG_SECP384R1 = 0x0018,
+    NG_SECP512R1 = 0x0019,
+    NG_X25519 = 0x001d,
+    NG_X448 = 0x001e,
+    
+    NG_FFDHE2048 = 0x0100,
+    NG_FFDHE3072 = 0x0101,
+    NG_FFDHE4096 = 0x0102,
+    NG_FFDHE6144 = 0x0103,
+    NG_FFDHE8192 = 0x0104,
+    
+};
+
 extern const int supported_extensions_len;
 extern const unsigned short supported_extensions[];
 

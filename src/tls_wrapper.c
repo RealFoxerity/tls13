@@ -101,7 +101,7 @@ void parse_client_hello(unsigned char * buffer, size_t len, struct ClientHello *
     memcpy(CH->legacy_session_id.data, buffer+message_offset+1, CH->legacy_session_id.len);
     message_offset += 1 + CH->legacy_session_id.len;
 
-    CH->cipher_suites.len = htons(*(short*)&buffer[message_offset]);
+    CH->cipher_suites.len = htons(*(unsigned short*)&buffer[message_offset]);
     assert(CH->cipher_suites.len >= 2 && CH->cipher_suites.len % 2 == 0);
     CH->cipher_suites.data = malloc(CH->cipher_suites.len);
     assert(CH->cipher_suites.data != NULL);
@@ -130,6 +130,7 @@ void parse_client_hello(unsigned char * buffer, size_t len, struct ClientHello *
 }
 
 char * target_server_name = NULL;
+Vector supported_groups = {0};
 
 int parse_extensions(struct ClientHello CH) { // TODO: parse extentions .... :D
     unsigned short len, ext;
@@ -156,6 +157,12 @@ int parse_extensions(struct ClientHello CH) { // TODO: parse extentions .... :D
                 }
                 fprintf(stderr, "Found extension server name: %s\n", target_server_name);
                 break;
+            case ET_SUPPORTED_GROUPS:
+                supported_groups = parse_supported_groups_extension(&((unsigned char*)CH.Extension.data)[i], len);
+                if (supported_groups.data == NULL) {
+                    fprintf(stderr, "Found SUPPORTED_GROUPS extension, but values are invalid!\n");
+                    return 2;
+                } else fprintf(stderr, "Found SUPPORTED_GROUPS extension\n");
             default:
                 fprintf(stderr, "Unknown extension id: %hx\n", ext);
         }

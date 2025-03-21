@@ -1,3 +1,4 @@
+#include "include/tls_extensions.h"
 #include "include/tls.h"
 
 #include <assert.h>
@@ -34,4 +35,14 @@ int parse_supported_versions_extension(unsigned char* buffer, unsigned short len
         if (htons(*(short*)&(buffer[i])) == 0x0304) return 0; // supports TLS 1.3
     }
     return 1;
+}
+
+Vector parse_supported_groups_extension(unsigned char *buffer, unsigned short len) {
+    Vector out = {0};
+    out.len = htons(*(unsigned short*)buffer);
+    assert((out.len %2) == 0 && out.len <= len-2 && out.len >= 2);
+    out.data = malloc(out.len);
+    assert(out.data != NULL);
+    memcpy(out.data, buffer+2, out.len);
+    return out;
 }
