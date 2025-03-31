@@ -201,9 +201,9 @@ int handshake_tls(unsigned char * buffer, size_t len) {
 
     if (handshake_len > len-sizeof(TLS_handshake)) {
         fprintf(stderr, "Handshake length larger than recieved data!\n");
-        return 2;
+        return 2; // alert decode_error
     } else if (handshake_len < len-sizeof(TLS_handshake)){
-        fprintf(stderr, "Warning: Handshake length smaler than recieved data!\n");
+        fprintf(stderr, "Warning: Handshake length smaller than recieved data!\n");
     }
 
     message_offset += sizeof(TLS_handshake);
@@ -212,23 +212,23 @@ int handshake_tls(unsigned char * buffer, size_t len) {
         struct ClientHello CH_packet = {0};
         memcpy(&CH_packet, buffer+message_offset, 34); // 34 for legacy_version + random, rest are dynamic
         message_offset += 34;
-        if (CH_packet.legacy_version != 0x0303) { // doesn't need htons cuz big endian of 0x0303 if you didn't know :3
+        if (CH_packet.legacy_version != 0x0303) { // doesn't need htons cuz big endian of 0x0303 is 0x0303 if you didn't know :3
             fprintf(stderr, "Invalid TLS client hello message (version))!\n");
-            return 2;
+            return 2; // alert illegal_parameter, shouldn't be sent by server, but is the best choice
         } else {
             fprintf(stderr, "Recieved TLS client hello!\n");
             parse_client_hello(buffer+message_offset, len-message_offset, &CH_packet);
             if (parse_extensions(CH_packet) != 0) {
                 fprintf(stderr, "Failed to parse TLS extensions!\n");
                 free_client_hello(CH_packet);
-                return 2;
+                return 2; // alert decode_error
             }
             free_client_hello(CH_packet);
             return 0;
         }
     } else if (handshake.msg_type == HT_CLIENT_HELLO) {
         fprintf(stderr, "Recieved renegotiation - invalid for TLS v1.3, closing connection!\n");
-        return 2;
+        return 2; // alert unexpected_message
     }
     return 0;
 }
@@ -253,21 +253,21 @@ int decrypt_tls(unsigned char* buffer, size_t len) { // TODO: implement alerts
 
     if (record.content_type == CT_INVALID || (record.content_type != CT_ALERT && record.content_type != CT_HANDSHAKE && record.content_type != CT_APPLICATION_DATA)) {
         fprintf(stderr, "Invalid TLS record content type!\n");
-        return 2;
+        return 2; // alert illegal_parameter
     }
 
     record.legacy_record_version = htons(record.legacy_record_version);
 
     if (record.legacy_record_version != 0x0301) {
         fprintf(stderr, "Invalid TLS record version!\n");
-        return 2;
+        return 2; // alert protocol_version, shouldn't be sent by server, but is the best choice
     }
     
     record.length = htons(record.length);
 
     if (record.length > len-sizeof(TLS_plainttext_header)) {
         fprintf(stderr, "Invalid TLS record length/truncated!\n");
-        return 2;
+        return 2; // alert decode_error
     } else if (record.length < len-sizeof(TLS_plainttext_header)) {
         fprintf(stderr, "Warning: record length smaller than recieved data!\n");
     }

@@ -15,8 +15,6 @@ enum CipherSuites { // supported CipherSuites
     TLS_AES_128_CCM_8_SHA256 = 0x1305,
     TLS_EMPTY_RENEGOTIATION_INFO_SCSV = 0x00FF, // no clue where to find this in the rfc but https://tls13.xargs.org/ had this
 };
-//const int supported_ciphers_len = 2;
-//const unsigned short supported_ciphers[] = {TLS_AES_128_GCM_SHA256, TLS_AES_256_GCM_SHA384};
 
 enum HandshakeTypes { // uchar
     HT_CLIENT_HELLO = 1,
@@ -107,15 +105,52 @@ enum NamedGroups { // key share, ushort
     
 };
 
-extern const int supported_extensions_len;
-extern const unsigned short supported_extensions[];
-
 enum ContentType { // records, uchar
     CT_INVALID = 0,
     //CT_CHANGE_CIPHER_SPEC = 20, // TLS 1.2 compatibility
     CT_ALERT = 21,
     CT_HANDSHAKE = 22,
     CT_APPLICATION_DATA = 23,
+};
+
+enum AlertLevel { // uchar
+    AL_WARNING = 1,
+    AL_FATAL = 2,
+};
+
+enum AlertDescription { // uchar
+    AD_CLOSE_NOTIFY = 0,
+    AD_UNEXPECTED_MESSAGE = 10,
+    AD_BAD_RECORD_MAC = 20,
+    AD_RECORD_OVERFLOW = 22,
+    AD_HANDSHAKE_FAILURE = 40,
+    AD_BAD_CERTIFICATE = 42,
+    AD_UNSUPPORTED_CERTIFICATE = 43,
+    AD_CERTIFICATE_REVOKED = 44,
+    AD_CERTIFICATE_EXPIRED = 45,
+    AD_CERTIFICATE_UNKNOWN = 46,
+    AD_ILLEGAL_PARAMETER = 47,
+    AD_UNKNOWN_CA = 48,
+    AD_ACCESS_DENIED = 49,
+    AD_DECODE_ERROR = 50,
+    AD_DECRYPT_ERROR = 51,
+    AD_PROTOCOL_VERSION = 70,
+    AD_INSUFFICIENT_SECURITY = 71,
+    AD_INTERNAL_ERROR = 80,
+    AD_INAPPROPRIATE_FALLBACK = 86,
+    AD_USER_CANCELED = 90,
+    AD_MISSING_EXTENSION = 109,
+    AD_UNSUPPORTED_EXTENSION = 110,
+    AD_UNRECOGNIZED_NAME = 112,
+    AD_BAD_CERTIFICATE_STATUS_RESPONSE = 113,
+    AD_UNKNOWN_PSK_IDENTITY = 115,
+    AD_CERTIFICATE_REQUIRED = 116,
+    AD_NO_APPLICATION_PROTOCOL = 120,
+};
+
+struct Alert {
+    unsigned char alert_level;
+    unsigned char alert_description;
 };
 
 struct {
