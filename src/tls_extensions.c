@@ -37,7 +37,7 @@ int parse_supported_versions_extension(unsigned char* buffer, unsigned short len
     return 1;
 }
 
-Vector parse_supported_groups_extension(unsigned char *buffer, unsigned short len) {
+Vector parse_extension_lenshort_mod2_generic(unsigned char * buffer, unsigned short len) {
     Vector out = {0};
     out.len = htons(*(unsigned short*)buffer);
     assert((out.len %2) == 0 && out.len <= len-2 && out.len >= 2);
@@ -45,4 +45,12 @@ Vector parse_supported_groups_extension(unsigned char *buffer, unsigned short le
     assert(out.data != NULL);
     memcpy(out.data, buffer+2, out.len);
     return out;
+}
+
+Vector parse_supported_groups_extension(unsigned char *buffer, unsigned short len) {
+    return parse_extension_lenshort_mod2_generic(buffer, len);
+}
+
+Vector parse_signature_algorithms_extensions(unsigned char * buffer, unsigned short len) {
+    return parse_extension_lenshort_mod2_generic(buffer, len);
 }

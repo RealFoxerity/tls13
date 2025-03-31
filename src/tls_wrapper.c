@@ -129,8 +129,10 @@ void parse_client_hello(unsigned char * buffer, size_t len, struct ClientHello *
     fprintf(stderr, "CH: LSI: %hhu CS: %hu LCM: %hu EXT: %hu\n", CH->legacy_session_id.len, CH->cipher_suites.len, CH->legacy_compression_methods.len, CH->Extension.len);
 }
 
+// Extensions
 char * target_server_name = NULL;
 Vector supported_groups = {0};
+Vector signature_algorithms = {0};
 
 int parse_extensions(struct ClientHello CH) { // TODO: parse extentions .... :D
     unsigned short len, ext;
@@ -143,14 +145,22 @@ int parse_extensions(struct ClientHello CH) { // TODO: parse extentions .... :D
         switch (ext) {
             case ET_PADDING:
                 break;
-            case ET_SUPPORTED_VERSIONS:
+            case ET_SIGNATURE_ALGORITHMS: // alert missing_extension
+                signature_algorithms = parse_signature_algorithms_extensions(&((unsigned char*)CH.Extension.data)[i], len);
+                if (signature_algorithms.data == NULL) {
+                    fprintf(stderr, "Found SIGNATURE_ALGORITHMS ext, but values are invalid/missing!\n");
+                    return 2;
+                }
+                fprintf(stderr, "Found SIGNATURE_ALGORITHMS extension\n");
+                break;
+            case ET_SUPPORTED_VERSIONS: // againt RFC, but since we dont support anything other than 1.3, alert missing_extension
                 if (parse_supported_versions_extension(&((unsigned char*)CH.Extension.data)[i], len) == 1) {
                     fprintf(stderr, "Bravo, the client indicated with a TLS 1.3 exclusive extension that it does not support TLS 1.3\n");
                     return 2;
                 }
                 fprintf(stderr, "TLS 1.3 in supported versions extension\n");
                 break;
-            case ET_SERVER_NAME:
+            case ET_SERVER_NAME: // alert missing_extension
                 if ((target_server_name = parse_server_name_extension(&((unsigned char*)CH.Extension.data)[i], len)) == NULL) {
                     fprintf(stderr, "Found SERVER_NAME ext, but values are invalid!\n");
                     return 2;
@@ -160,7 +170,7 @@ int parse_extensions(struct ClientHello CH) { // TODO: parse extentions .... :D
             case ET_SUPPORTED_GROUPS:
                 supported_groups = parse_supported_groups_extension(&((unsigned char*)CH.Extension.data)[i], len);
                 if (supported_groups.data == NULL) {
-                    fprintf(stderr, "Found SUPPORTED_GROUPS extension, but values are invalid!\n");
+                    fprintf(stderr, "Found SUPPORTED_GROUPS extension, but values are invalid/missing!\n");
                     return 2;
                 } else fprintf(stderr, "Found SUPPORTED_GROUPS extension\n");
                 break;

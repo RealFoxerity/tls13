@@ -58,6 +58,40 @@ enum ExtensionTypes { // ushort
     ET_SESSION_TICKET_IGNORE = 35,                  // not required from server, but TLS clients include this extension usually
 };
 
+enum SignatureSchemes {
+    /* RSASSA-PKCS1-v1_5 algorithms */
+    SS_RSA_PKCS1_SHA256 = 0x0401,
+    SS_RSA_PKCS1_SHA384 = 0x0501,
+    SS_RSA_PKCS1_SHA512 = 0x0601,
+
+    /* ECDSA algorithms */
+    SS_ECDSA_SECP256R1_SHA256 = 0x0403,
+    SS_ECDSA_SECP384R1_SHA384 = 0x0503,
+    SS_ECDSA_SECP521R1_SHA512 = 0x0603,
+
+    /* RSASSA-PSS algorithms with public key OID rsaEncryption */
+    SS_RSA_PSS_RSAE_SHA256 = 0x0804,
+    SS_RSA_PSS_RSAE_SHA384 = 0x0805,
+    SS_RSA_PSS_RSAE_SHA512 = 0x0806,
+
+    /* EdDSA algorithms */
+    SS_ED25519 = 0x0807,
+    SS_ED448 = 0x0808,
+
+    /* RSASSA-PSS algorithms with public key OID RSASSA-PSS */
+    SS_RSA_PSS_PSS_SHA256 = 0x0809,
+    SS_RSA_PSS_PSS_SHA384 = 0x080a,
+    SS_RSA_PSS_PSS_SHA512 = 0x080b,
+
+    /* Legacy algorithms */
+    SS_RSA_PKCS1_SHA1 = 0x0201,
+    SS_ECDSA_SHA1 = 0x0203,
+
+    /* Reserved Code Points */
+    //private_use(0xFE00..0xFFFF),
+    //(0xFFFF)
+};
+
 enum NamedGroups { // key share, ushort
     NG_SECP256R1 = 0x0017,
     NG_SECP384R1 = 0x0018,

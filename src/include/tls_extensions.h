@@ -5,5 +5,6 @@
 char* parse_server_name_extension(unsigned char* buffer, unsigned short len);
 int parse_supported_versions_extension(unsigned char* buffer, unsigned short len);
 Vector parse_supported_groups_extension(unsigned char *buffer, unsigned short len);
+Vector parse_signature_algorithms_extensions(unsigned char * buffer, unsigned short len);
 
 #endif
