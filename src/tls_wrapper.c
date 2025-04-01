@@ -131,8 +131,9 @@ void parse_client_hello(unsigned char * buffer, size_t len, struct ClientHello *
 
 // Extensions
 char * target_server_name = NULL;
-Vector supported_groups = {0};
-Vector signature_algorithms = {0};
+Vector supported_groups = {0}; // namedgroups enum
+Vector signature_algorithms = {0}; // signatureschemes enum
+Vector key_share_groups = {0}; // namedgroups enum
 
 int parse_extensions(struct ClientHello CH) { // TODO: parse extentions .... :D
     unsigned short len, ext;
@@ -141,29 +142,29 @@ int parse_extensions(struct ClientHello CH) { // TODO: parse extentions .... :D
         i+=2;
         len = htons(*(unsigned short*)&((unsigned char*)CH.Extension.data)[i]);
         i+=2;
-        if (len > CH.Extension.len) return 2;
+        if (len > CH.Extension.len) return AD_DECODE_ERROR;
         switch (ext) {
             case ET_PADDING:
                 break;
             case ET_SIGNATURE_ALGORITHMS: // alert missing_extension
-                signature_algorithms = parse_signature_algorithms_extensions(&((unsigned char*)CH.Extension.data)[i], len);
+                signature_algorithms = parse_signature_algorithms_extension(&((unsigned char*)CH.Extension.data)[i], len);
                 if (signature_algorithms.data == NULL) {
                     fprintf(stderr, "Found SIGNATURE_ALGORITHMS ext, but values are invalid/missing!\n");
-                    return 2;
+                    return AD_ILLEGAL_PARAMETER;
                 }
                 fprintf(stderr, "Found SIGNATURE_ALGORITHMS extension\n");
                 break;
             case ET_SUPPORTED_VERSIONS: // againt RFC, but since we dont support anything other than 1.3, alert missing_extension
                 if (parse_supported_versions_extension(&((unsigned char*)CH.Extension.data)[i], len) == 1) {
                     fprintf(stderr, "Bravo, the client indicated with a TLS 1.3 exclusive extension that it does not support TLS 1.3\n");
-                    return 2;
+                    return AD_ILLEGAL_PARAMETER;
                 }
                 fprintf(stderr, "TLS 1.3 in supported versions extension\n");
                 break;
             case ET_SERVER_NAME: // alert missing_extension
                 if ((target_server_name = parse_server_name_extension(&((unsigned char*)CH.Extension.data)[i], len)) == NULL) {
                     fprintf(stderr, "Found SERVER_NAME ext, but values are invalid!\n");
-                    return 2;
+                    return AD_ILLEGAL_PARAMETER;
                 }
                 fprintf(stderr, "Found extension server name: %s\n", target_server_name);
                 break;
@@ -171,8 +172,15 @@ int parse_extensions(struct ClientHello CH) { // TODO: parse extentions .... :D
                 supported_groups = parse_supported_groups_extension(&((unsigned char*)CH.Extension.data)[i], len);
                 if (supported_groups.data == NULL) {
                     fprintf(stderr, "Found SUPPORTED_GROUPS extension, but values are invalid/missing!\n");
-                    return 2;
+                    return AD_ILLEGAL_PARAMETER;
                 } else fprintf(stderr, "Found SUPPORTED_GROUPS extension\n");
+                break;
+            case ET_KEY_SHARE:
+                key_share_groups = parse_key_share_groups_extension(&((unsigned char*)CH.Extension.data)[i], len);
+                if (key_share_groups.data == NULL) {
+                    fprintf(stderr, "Found KEY_SHARE extension, but values are invalid/missing!\n");
+                    return AD_ILLEGAL_PARAMETER;
+                } else fprintf(stderr, "Found KEY_SHARE extension\n");
                 break;
             case ET_SESSION_TICKET_IGNORE:
                 fprintf(stderr, "Found SESSION_TICKET extension\n");
@@ -201,7 +209,7 @@ int handshake_tls(unsigned char * buffer, size_t len) {
 
     if (handshake_len > len-sizeof(TLS_handshake)) {
         fprintf(stderr, "Handshake length larger than recieved data!\n");
-        return 2; // alert decode_error
+        return AD_DECODE_ERROR;
     } else if (handshake_len < len-sizeof(TLS_handshake)){
         fprintf(stderr, "Warning: Handshake length smaller than recieved data!\n");
     }
@@ -214,21 +222,21 @@ int handshake_tls(unsigned char * buffer, size_t len) {
         message_offset += 34;
         if (CH_packet.legacy_version != 0x0303) { // doesn't need htons cuz big endian of 0x0303 is 0x0303 if you didn't know :3
             fprintf(stderr, "Invalid TLS client hello message (version))!\n");
-            return 2; // alert illegal_parameter, shouldn't be sent by server, but is the best choice
+            return AD_ILLEGAL_PARAMETER; // shouldn't be sent by server, but is the best choice
         } else {
             fprintf(stderr, "Recieved TLS client hello!\n");
             parse_client_hello(buffer+message_offset, len-message_offset, &CH_packet);
             if (parse_extensions(CH_packet) != 0) {
                 fprintf(stderr, "Failed to parse TLS extensions!\n");
                 free_client_hello(CH_packet);
-                return 2; // alert decode_error
+                return AD_DECODE_ERROR;
             }
             free_client_hello(CH_packet);
             return 0;
         }
     } else if (handshake.msg_type == HT_CLIENT_HELLO) {
         fprintf(stderr, "Recieved renegotiation - invalid for TLS v1.3, closing connection!\n");
-        return 2; // alert unexpected_message
+        return AD_UNEXPECTED_MESSAGE;
     }
     return 0;
 }
@@ -236,7 +244,7 @@ int handshake_tls(unsigned char * buffer, size_t len) {
 int decrypt_tls(unsigned char* buffer, size_t len) { // TODO: implement alerts
 
     if (len < sizeof(TLS_plainttext_header)) {
-        return 2;
+        return AD_DECODE_ERROR;
     }
     
     
@@ -253,21 +261,21 @@ int decrypt_tls(unsigned char* buffer, size_t len) { // TODO: implement alerts
 
     if (record.content_type == CT_INVALID || (record.content_type != CT_ALERT && record.content_type != CT_HANDSHAKE && record.content_type != CT_APPLICATION_DATA)) {
         fprintf(stderr, "Invalid TLS record content type!\n");
-        return 2; // alert illegal_parameter
+        return AD_ILLEGAL_PARAMETER;
     }
 
     record.legacy_record_version = htons(record.legacy_record_version);
 
     if (record.legacy_record_version != 0x0301) {
         fprintf(stderr, "Invalid TLS record version!\n");
-        return 2; // alert protocol_version, shouldn't be sent by server, but is the best choice
+        return AD_PROTOCOL_VERSION; // shouldn't be sent by server, but is the best choice
     }
     
     record.length = htons(record.length);
 
     if (record.length > len-sizeof(TLS_plainttext_header)) {
         fprintf(stderr, "Invalid TLS record length/truncated!\n");
-        return 2; // alert decode_error
+        return AD_DECODE_ERROR;
     } else if (record.length < len-sizeof(TLS_plainttext_header)) {
         fprintf(stderr, "Warning: record length smaller than recieved data!\n");
     }

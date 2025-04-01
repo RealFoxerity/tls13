@@ -31,11 +31,11 @@ enum HandshakeTypes { // uchar
 };
 
 enum ExtensionTypes { // ushort
-    ET_SERVER_NAME = 0,                             /* RFC 6066 */ // REQUIRED
+    ET_SERVER_NAME = 0,                             /* RFC 6066 */ // REQUIRED, implemeneted check
     ET_MAX_FRAGMENT_LENGTH = 1,                     /* RFC 6066 */
     ET_STATUS_REQUEST = 5,                          /* RFC 6066 */
-    ET_SUPPORTED_GROUPS = 10,                       /* RFC 8422, 7919 */ // REQUIRED
-    ET_SIGNATURE_ALGORITHMS = 13,                   /* RFC 8446 */ // REQUIRED
+    ET_SUPPORTED_GROUPS = 10,                       /* RFC 8422, 7919 */ // REQUIRED, implemented check
+    ET_SIGNATURE_ALGORITHMS = 13,                   /* RFC 8446 */ // REQUIRED, implemented check
     ET_USE_SRTP = 14,                               /* RFC 5764 */
     ET_HEARTBEAT = 15,                              /* RFC 6520 */
     ET_APPLICATION_LAYER_PROTOCOL_NEGOTIATION = 16, /* RFC 7301 */
@@ -45,15 +45,20 @@ enum ExtensionTypes { // ushort
     ET_PADDING = 21,                                /* RFC 7685 */
     ET_PRE_SHARED_KEY = 41,                         /* RFC 8446 */ // REQUIRED for PSK
     ET_EARLY_DATA = 42,                             /* RFC 8446 */
-    ET_SUPPORTED_VERSIONS = 43,                     /* RFC 8446 */ // REQUIRED
+    ET_SUPPORTED_VERSIONS = 43,                     /* RFC 8446 */ // REQUIRED, implemeneted check
     ET_COOKIE = 44,                                 /* RFC 8446 */ // REQUIRED
-    ET_PSK_KEY_EXCHANGE_MODES = 45,                 /* RFC 8446 */ // REQUIRED for PSK
+    ET_PSK_KEY_EXCHANGE_MODES = 45,                 /* RFC 8446 */ // REQUIRED for PSK, implemented check
     ET_CERTIFICATE_AUTHORITIES = 47,                /* RFC 8446 */
     ET_OID_FILTERS = 48,                            /* RFC 8446 */
     ET_POST_HANDSHAKE_AUTH = 49,                    /* RFC 8446 */
-    ET_SIGNATURE_ALGORITHMS_CERT = 50,              /* RFC 8446 */ // REQUIRED
-    ET_KEY_SHARE = 51,                              /* RFC 8446 */ // REQUIRED
-    ET_SESSION_TICKET_IGNORE = 35,                  // not required from server, but TLS clients include this extension usually
+    ET_SIGNATURE_ALGORITHMS_CERT = 50,              /* RFC 8446 */ // REQUIRED, implemented check
+    ET_KEY_SHARE = 51,                              /* RFC 8446 */ // REQUIRED, implemented check
+    ET_SESSION_TICKET_IGNORE = 35,                  /* RFC 8446 */ // not required from server, but TLS clients include this extension usually
+};
+
+enum PskKeyExchangeModes { // uchar
+    PKEM_KE = 0, // server MUST NOT return key_share
+    PKEM_DHE_KE = 1,
 };
 
 enum SignatureSchemes {

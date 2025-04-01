@@ -48,6 +48,21 @@ Vector parse_supported_groups_extension(unsigned char *buffer, unsigned short le
     return parse_extension_lenshort_mod2_generic(buffer, len);
 }
 
-Vector parse_signature_algorithms_extensions(unsigned char * buffer, unsigned short len) {
+Vector parse_key_share_groups_extension(unsigned char *buffer, unsigned short len) {
     return parse_extension_lenshort_mod2_generic(buffer, len);
+}
+
+Vector parse_signature_algorithms_extension(unsigned char * buffer, unsigned short len) {
+    return parse_extension_lenshort_mod2_generic(buffer, len);
+}
+Vector parse_psk_key_exchange_modes_extension(unsigned char * buffer, unsigned short len) {
+    Vector out = {0};
+    unsigned short pkem_len = buffer[0];
+    assert(pkem_len >= 1); // alert decode_error
+    assert(pkem_len <= len-1); // alert decode_error
+    out.data = malloc(len - 1);
+    assert(out.data != NULL);
+
+    memcpy(out.data, buffer + 1, len-1);
+    
 }
