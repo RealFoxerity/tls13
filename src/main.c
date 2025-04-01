@@ -91,12 +91,15 @@ int main(int argc, char** argv) {
     signal(SIGCHLD, child_callback);
     signal(SIGINT, terminate);
 
+    char testing = 0;
+
     for (int i = 1; i<argc; i++) {
         if (strcmp("--help", argv[i]) == 0 || strcmp("-h", argv[i]) == 0) {
             help:
             fprintf(stderr, 
 "Usage:\n"
 "%s [-p port] [-a addr] [-r webroot] [-d domain] (-s -c chain.pem -k privkey.key [-o port2])\n"
+"-T\t\tSINGLE CONNECTION, TESTING\n"
 "-p\t\tPort for http (default 80)\n"
 "-a\t\tAddress to bind to (default 0.0.0.0)\n"
 "-r\t\tRoot of server (default ./webroot/)\n"
@@ -109,6 +112,11 @@ int main(int argc, char** argv) {
 );
 exit(EXIT_SUCCESS);
         }
+        else if (strcmp("-T", argv[i]) == 0) {
+            testing = 1;
+            fprintf(stderr, "SERVING SINGLE CONNECTION SINGLE THREAD!\n");
+            continue;
+        } 
         else if (strcmp("-a", argv[i]) == 0) {
             if (i+1 >= argc) {
                 fprintf(stderr, "-a requires an argument!\n");
@@ -300,8 +308,9 @@ exit(EXIT_SUCCESS);
         strncpy(time_char, ctime(&conn_time), MIN(256, strlen(ctime(&conn_time))-1));
         fprintf(stderr, "[%s] Recieved connection from %s:%d\n", time_char, ip_client, htons(addr.sin_port));
 
-        switch (fork()) {
-            case 0: // child
+        //switch (fork()) {
+        switch (testing?0:fork()) {
+                case 0: // child
                 if (!connect_is_ssl) server(conn_fd);
                 else ssl_wrapper(conn_fd);
                 exit(EXIT_SUCCESS);

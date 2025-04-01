@@ -1,5 +1,5 @@
 CC=gcc
-CFLAGS=-O3 -g
+CFLAGS=-Og -g
 LDFLAGS=
 OBJS=src/main.o src/server.o src/mime_types.o src/tls_wrapper.o src/tls_extensions.o
 
@@ -16,7 +16,7 @@ release: $(OBJS)
 
 clean:
 	rm -rf build
-	rm -f $(! find . -name "*.o")
+	rm -f $(shell find . -name "*.o")
 
 src/main.o: src/server.o src/tls_wrapper.o
 src/tls_wrapper.o: src/server.o src/tls_extensions.o

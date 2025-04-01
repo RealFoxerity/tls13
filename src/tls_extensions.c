@@ -44,12 +44,45 @@ Vector parse_extension_lenshort_mod2_generic(unsigned char * buffer, unsigned sh
     return out;
 }
 
+Vector parse_extension_lenshort_generic(unsigned char * buffer, unsigned short len) {
+    Vector out = {0};
+    out.len = htons(*(unsigned short*)buffer);
+    assert(out.len <= len-2); // alert decode_error
+    out.data = malloc(out.len);
+    assert(out.data != NULL); // alert illegal_parameter
+    memcpy(out.data, buffer+2, out.len);
+    return out;
+}
+
 Vector parse_supported_groups_extension(unsigned char *buffer, unsigned short len) {
     return parse_extension_lenshort_mod2_generic(buffer, len);
 }
+KeyShares parse_key_share_groups_extension(unsigned char *buffer, unsigned short len) { // kill me
+    KeyShares out = {0};
+    KeyShares * curr = &out;
+    Vector base = parse_extension_lenshort_generic(buffer, len);
 
-Vector parse_key_share_groups_extension(unsigned char *buffer, unsigned short len) {
-    return parse_extension_lenshort_mod2_generic(buffer, len);
+    for (int i = 0; i < base.len;) {
+        assert(i+2 <= base.len);
+        curr->node.group = htons(*(unsigned short*)(base.data+i));
+        curr->node.key_exchange = parse_extension_lenshort_generic(base.data+i+2, base.len-i-2);
+        assert(curr->node.key_exchange.len >=1);
+        i+= 2+curr->node.key_exchange.len+2; 
+
+        if (i < base.len-1) {
+            curr->next = malloc(sizeof(struct KeyShareNode));
+            assert(curr->next != NULL);
+            memset(curr->next, 0, sizeof(struct KeyShareNode));
+            curr = curr->next;
+        } else {
+            curr->next = NULL; // to be 100000% sure
+        }
+    }
+    
+    free(base.data);
+    base.data = NULL;
+
+    return out;
 }
 
 Vector parse_signature_algorithms_extension(unsigned char * buffer, unsigned short len) {
@@ -60,9 +93,9 @@ Vector parse_psk_key_exchange_modes_extension(unsigned char * buffer, unsigned s
     unsigned short pkem_len = buffer[0];
     assert(pkem_len >= 1); // alert decode_error
     assert(pkem_len <= len-1); // alert decode_error
-    out.data = malloc(len - 1);
+    out.data = malloc(pkem_len);
     assert(out.data != NULL);
 
-    memcpy(out.data, buffer + 1, len-1);
-    
+    memcpy(out.data, buffer + 1, pkem_len);
+    return out;
 }

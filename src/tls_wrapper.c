@@ -32,6 +32,16 @@ unsigned long message_counter = 0;
 
 int decrypt_tls(unsigned char* buffer, size_t len);
 
+void construct_alert(unsigned char alert_desc, unsigned char alert_level, unsigned char* buffer, size_t bufsiz) {
+    assert(bufsiz >= sizeof(TLS_plainttext_header)+sizeof(struct Alert));
+    memset(buffer, 0, bufsiz);
+    ((TLS_plainttext_header*)buffer)->content_type = CT_ALERT;
+    ((TLS_plainttext_header*)buffer)->legacy_record_version = htons(0x0301);
+    ((TLS_plainttext_header*)buffer)->length = htons(2);
+    ((struct Alert*)(buffer+sizeof(TLS_plainttext_header)))->alert_level = alert_level;
+    ((struct Alert*)(buffer+sizeof(TLS_plainttext_header)))->alert_description = alert_desc;
+}
+
 void ssl_wrapper(int socket_fd) {
     int socks[2];
     assert(socketpair(AF_UNIX, SOCK_STREAM, 0, socks) == 0);
@@ -60,19 +70,23 @@ void ssl_wrapper(int socket_fd) {
 
     int recv_len = 0;
 
+    int ret;
+
     while (select(MAX(socket_fd, inner_fd)+1, &set, NULL, NULL, NULL) != -1) {
         message_counter++;
         if (FD_ISSET(socket_fd, &set)) { // client sending a message
             FD_SET(inner_fd, &set);
             recv_len = recv(socket_fd, buffer, MAX_REQUEST_SIZE, 0);
-            switch (decrypt_tls(buffer, recv_len)) {
-                case 0:
-                    break;
-                case 1:
+            switch (ret = decrypt_tls(buffer, recv_len)) {
+                case -2:
+                    //everything ok, decrypted buffer
+                case -1:
+                    //everything ok, message was internal
                     send(socket_fd, buffer, MAX_REQUEST_SIZE, 0); // this message was internal to TLS (e.g. clienthello)
                     break;
-                case 2:
-                    send(socket_fd, buffer, MAX_REQUEST_SIZE, 0); // critical error, will send alert, exit(EXIT_FAILURE)
+                default:
+                    construct_alert(ret, AL_FATAL, buffer, MAX_REQUEST_SIZE);
+                    send(socket_fd, buffer, sizeof(TLS_plainttext_header)+sizeof(struct Alert), 0); // alert messages are always 7 bytes long
                     exit(EXIT_FAILURE);
                     break;
             } 
@@ -91,7 +105,7 @@ void ssl_wrapper(int socket_fd) {
 }
 
 
-void parse_client_hello(unsigned char * buffer, size_t len, struct ClientHello * CH) { // TODO: add human readable errors ig
+void parse_client_hello(unsigned char * buffer, size_t len, struct ClientHello * CH) { // TODO: add human readable errors and valid alerts
     size_t message_offset = 0;
     
     CH->legacy_session_id.len = buffer[message_offset];
@@ -118,70 +132,93 @@ void parse_client_hello(unsigned char * buffer, size_t len, struct ClientHello *
     message_offset += 1 + CH->legacy_compression_methods.len;
     assert(CH->legacy_compression_methods.len == 1 && *(char*)(CH->legacy_compression_methods.data) == 0x00 && "TLS v1.3 specifies compression method should be NULL");
 
-    CH->Extension.len = htons(*(short*)&buffer[message_offset]);
-    assert(CH->Extension.len >= 8);
-    CH->Extension.data = malloc(CH->Extension.len);
-    assert(CH->Extension.data != NULL);
-    assert(message_offset+CH->Extension.len+2 <= len);
-    memcpy(CH->Extension.data, buffer+message_offset+2, CH->Extension.len);
-    message_offset += 2 + CH->Extension.len;
+    CH->extensions.len = htons(*(short*)&buffer[message_offset]);
+    assert(CH->extensions.len >= 8);
+    CH->extensions.data = malloc(CH->extensions.len);
+    assert(CH->extensions.data != NULL);
+    assert(message_offset+CH->extensions.len+2 <= len);
+    memcpy(CH->extensions.data, buffer+message_offset+2, CH->extensions.len);
+    message_offset += 2 + CH->extensions.len;
     
-    fprintf(stderr, "CH: LSI: %hhu CS: %hu LCM: %hu EXT: %hu\n", CH->legacy_session_id.len, CH->cipher_suites.len, CH->legacy_compression_methods.len, CH->Extension.len);
+    fprintf(stderr, "CH: LSI: %hhu CS: %hu LCM: %hu EXT: %hu\n", CH->legacy_session_id.len, CH->cipher_suites.len, CH->legacy_compression_methods.len, CH->extensions.len);
 }
 
 // Extensions
 char * target_server_name = NULL;
-Vector supported_groups = {0}; // namedgroups enum
-Vector signature_algorithms = {0}; // signatureschemes enum
-Vector key_share_groups = {0}; // namedgroups enum
+
+struct KeyShareNode chosen_key_share = {0};
+unsigned short chosen_signature_algo = 0;
+unsigned short chosen_group = 0;
+unsigned short chosen_cipher_suite = 0;
+
+unsigned char random_crypto[32] = {0};
+
+//Vector pkem = {0}; // pkem enum
+//Vector pre_shared_key = {0};
 
 int parse_extensions(struct ClientHello CH) { // TODO: parse extentions .... :D
+    Vector supported_groups = {0}; // namedgroups enum
+    Vector signature_algorithms = {0}; // signatureschemes enum
+    KeyShares key_shares = {0}; // namedgroups enum, key_exchange vector
+
+    char found_ver = 0;
     unsigned short len, ext;
-    for (int i = 0; i<CH.Extension.len;) {
-        ext = htons(*(unsigned short*)&((unsigned char*)CH.Extension.data)[i]);
+    for (int i = 0; i<CH.extensions.len;) {
+        ext = htons(*(unsigned short*)&((unsigned char*)CH.extensions.data)[i]);
         i+=2;
-        len = htons(*(unsigned short*)&((unsigned char*)CH.Extension.data)[i]);
+        len = htons(*(unsigned short*)&((unsigned char*)CH.extensions.data)[i]);
         i+=2;
-        if (len > CH.Extension.len) return AD_DECODE_ERROR;
+        if (len > CH.extensions.len) return AD_DECODE_ERROR;
         switch (ext) {
             case ET_PADDING:
                 break;
             case ET_SIGNATURE_ALGORITHMS: // alert missing_extension
-                signature_algorithms = parse_signature_algorithms_extension(&((unsigned char*)CH.Extension.data)[i], len);
+                signature_algorithms = parse_signature_algorithms_extension(&((unsigned char*)CH.extensions.data)[i], len);
                 if (signature_algorithms.data == NULL) {
                     fprintf(stderr, "Found SIGNATURE_ALGORITHMS ext, but values are invalid/missing!\n");
                     return AD_ILLEGAL_PARAMETER;
                 }
                 fprintf(stderr, "Found SIGNATURE_ALGORITHMS extension\n");
                 break;
-            case ET_SUPPORTED_VERSIONS: // againt RFC, but since we dont support anything other than 1.3, alert missing_extension
-                if (parse_supported_versions_extension(&((unsigned char*)CH.Extension.data)[i], len) == 1) {
+            case ET_SUPPORTED_VERSIONS: // against RFC, but since we dont support anything other than 1.3, alert missing_extension
+                if (parse_supported_versions_extension(&((unsigned char*)CH.extensions.data)[i], len) == 1) {
                     fprintf(stderr, "Bravo, the client indicated with a TLS 1.3 exclusive extension that it does not support TLS 1.3\n");
                     return AD_ILLEGAL_PARAMETER;
                 }
-                fprintf(stderr, "TLS 1.3 in supported versions extension\n");
+                fprintf(stderr, "Found SUPPORTED_VERSIONS extension: TLS 1.3 supported\n");
+                found_ver = 1;
                 break;
             case ET_SERVER_NAME: // alert missing_extension
-                if ((target_server_name = parse_server_name_extension(&((unsigned char*)CH.Extension.data)[i], len)) == NULL) {
+                if ((target_server_name = parse_server_name_extension(&((unsigned char*)CH.extensions.data)[i], len)) == NULL) {
                     fprintf(stderr, "Found SERVER_NAME ext, but values are invalid!\n");
                     return AD_ILLEGAL_PARAMETER;
                 }
-                fprintf(stderr, "Found extension server name: %s\n", target_server_name);
+                fprintf(stderr, "Found SERVER_NAME extension: %s\n", target_server_name);
                 break;
             case ET_SUPPORTED_GROUPS:
-                supported_groups = parse_supported_groups_extension(&((unsigned char*)CH.Extension.data)[i], len);
+                supported_groups = parse_supported_groups_extension(&((unsigned char*)CH.extensions.data)[i], len);
                 if (supported_groups.data == NULL) {
                     fprintf(stderr, "Found SUPPORTED_GROUPS extension, but values are invalid/missing!\n");
                     return AD_ILLEGAL_PARAMETER;
-                } else fprintf(stderr, "Found SUPPORTED_GROUPS extension\n");
+                }
+                fprintf(stderr, "Found SUPPORTED_GROUPS extension\n");
                 break;
             case ET_KEY_SHARE:
-                key_share_groups = parse_key_share_groups_extension(&((unsigned char*)CH.Extension.data)[i], len);
-                if (key_share_groups.data == NULL) {
+                key_shares = parse_key_share_groups_extension(&((unsigned char*)CH.extensions.data)[i], len);
+                if (key_shares.node.key_exchange.data == NULL) {
                     fprintf(stderr, "Found KEY_SHARE extension, but values are invalid/missing!\n");
                     return AD_ILLEGAL_PARAMETER;
-                } else fprintf(stderr, "Found KEY_SHARE extension\n");
+                }
+                fprintf(stderr, "Found KEY_SHARE extension\n");
                 break;
+            //case ET_PSK_KEY_EXCHANGE_MODES:
+            //    pkem = parse_psk_key_exchange_modes_extension(&((unsigned char*)CH.Extension.data)[i], len);
+            //    if (pkem.data == NULL) {
+            //        fprintf(stderr, "Found ET_PSK_KEY_EXCHANGE_MODES extension, but values are invalid/missing!\n");
+            //        return AD_ILLEGAL_PARAMETER;
+            //    }
+            //    fprintf(stderr, "Found ET_PSK_KEY_EXCHANGE_MODES extension\n");
+            //    break;
             case ET_SESSION_TICKET_IGNORE:
                 fprintf(stderr, "Found SESSION_TICKET extension\n");
                 break;
@@ -191,17 +228,117 @@ int parse_extensions(struct ClientHello CH) { // TODO: parse extentions .... :D
         }
         i+=len;
     }
-    return 0;
+    
+    if (!found_ver || signature_algorithms.data == NULL || supported_groups.data == NULL) { // || (pre_shared_key.data != NULL && pkem.data == NULL)) {
+        return AD_MISSING_EXTENSION;
+    }
+
+    if (supported_groups.data == NULL) {
+        return AD_MISSING_EXTENSION; // no clue if actually according to spec, nothing there, but SG seems important so idk
+    }
+    for (int i = 0; i < supported_groups.len/2; i++) {
+        if (((short*)supported_groups.data)[i] == htons(NG_X25519)) {
+            chosen_group = NG_X25519;
+        }
+    }
+    if (chosen_group == 0) return AD_HANDSHAKE_FAILURE;
+    free(supported_groups.data);
+
+    for (int i = 0; i < signature_algorithms.len/2; i++) {
+        if (((short*)signature_algorithms.data)[i] == htons(SS_ED25519)) {
+            chosen_signature_algo = SS_ED25519;
+        }
+    }
+    if (chosen_signature_algo == 0) return AD_HANDSHAKE_FAILURE;
+    free(signature_algorithms.data);
+
+
+    KeyShares *curr = &key_shares;
+    do {
+        if (curr->node.group == NG_X25519) {
+            chosen_key_share = curr->node;
+            break;
+        }
+    } while ((curr = curr->next) != NULL);
+    if (chosen_key_share.group == 0) return AD_HANDSHAKE_FAILURE;
+
+    curr = &key_shares; // cleanup key_shares
+    KeyShares prev = key_shares;
+    do {
+        prev = *curr;
+        if (curr != &key_shares) free(curr);
+    } while ((curr = prev.next) != NULL);
+
+
+    for (int i = 0; i < CH.cipher_suites.len/2; i++) {
+        if (((short*)CH.cipher_suites.data)[i] == htons(TLS_AES_256_GCM_SHA384)) {
+            chosen_cipher_suite = TLS_AES_256_GCM_SHA384;
+        }
+    }
+    if (chosen_cipher_suite == 0) return AD_HANDSHAKE_FAILURE;
+
+    return -1;
 }
 
 void free_client_hello(struct ClientHello CH) {
     free(CH.cipher_suites.data);
-    free(CH.Extension.data);
+    free(CH.extensions.data);
     free(CH.legacy_compression_methods.data);
     free(CH.legacy_session_id.data);
 }
 
+void construct_server_hello(unsigned char * buffer, size_t len, struct ClientHello CH) {
+    size_t extensions_len = 0;  // we dont't have any encrypted extensions
+    //must respond to supported_versions, key_share, signature_algo, named_group
+    extensions_len += 6; // 2 size, 2 inner size, 2 version
+    extensions_len += 6; // ????????signature algo mayber
+    extensions_len += 6; // ???????named group mayber
+
+    size_t final_size = sizeof(TLS_handshake) + 2 + 32 + 1 + CH.legacy_session_id.len + 2 + 1 + extensions_len;
+        // 2 = version, 32 = server random, 1 = vector size for session_id, 2 = cipher suite, 1 = legacy compression
+    
+    assert(final_size <= (1<<16)-1);
+    assert(final_size <= len);
+
+    buffer = buffer-sizeof(TLS_plainttext_header); // crazy ik, but too lazy, always works anyway
+    memset(buffer, 0, len+sizeof(TLS_plainttext_header));
+    
+    size_t bufoff = sizeof(TLS_plainttext_header);
+    ((TLS_plainttext_header*)buffer)->content_type = CT_HANDSHAKE;
+    ((TLS_plainttext_header*)buffer)->legacy_record_version = htons(0x0301);
+    ((TLS_plainttext_header*)buffer)->length = htons(final_size);
+
+    ((TLS_handshake*)(buffer+bufoff))->msg_type = HT_SERVER_HELLO;
+    ((TLS_handshake*)(buffer+bufoff))->length[0] = 0;
+    *(short*)&(((TLS_handshake*)(buffer+bufoff))->length[1]) = htons(final_size-sizeof(TLS_handshake));
+
+    bufoff += sizeof(TLS_handshake);
+    *(short*)(buffer+bufoff) = 0x0303;
+    bufoff += 2;
+
+    srandom(time(NULL));
+    for (int i =0; i < 8; i++) { // get random for SH TODO: FIX!!! HAVE TO USE CSPRNG
+        ((int*)buffer+bufoff)[i] = random();
+    }
+    memcpy(random_crypto, buffer+bufoff, 32);
+    bufoff += 32;
+
+    buffer[bufoff] = CH.legacy_session_id.len;
+    bufoff ++;
+
+    memcpy(buffer+bufoff, CH.legacy_session_id.data, CH.legacy_session_id.len);
+    buffer += CH.legacy_session_id.len;
+
+    *(short*)(buffer+bufoff) = htons(TLS_AES_256_GCM_SHA384);
+    buffer +=2;
+
+    buffer[bufoff] = 0; // null compression
+    bufoff ++;
+
+}
+
 int handshake_tls(unsigned char * buffer, size_t len) {
+    int ret = -1;
     size_t message_offset = 0;
     TLS_handshake handshake = {0};
     memcpy(&handshake, buffer, sizeof(TLS_handshake));
@@ -226,19 +363,23 @@ int handshake_tls(unsigned char * buffer, size_t len) {
         } else {
             fprintf(stderr, "Recieved TLS client hello!\n");
             parse_client_hello(buffer+message_offset, len-message_offset, &CH_packet);
-            if (parse_extensions(CH_packet) != 0) {
+            if ((ret = parse_extensions(CH_packet)) != -1) {
                 fprintf(stderr, "Failed to parse TLS extensions!\n");
                 free_client_hello(CH_packet);
-                return AD_DECODE_ERROR;
+                return ret;
             }
             free_client_hello(CH_packet);
-            return 0;
+            construct_server_hello(buffer, len, CH_packet);
+            return -1;
         }
     } else if (handshake.msg_type == HT_CLIENT_HELLO) {
         fprintf(stderr, "Recieved renegotiation - invalid for TLS v1.3, closing connection!\n");
         return AD_UNEXPECTED_MESSAGE;
+    } else {
+        construct_alert(AD_DECODE_ERROR, AL_FATAL, buffer, len);
+        return AD_DECODE_ERROR;
     }
-    return 0;
+    return -1;
 }
 
 int decrypt_tls(unsigned char* buffer, size_t len) { // TODO: implement alerts
@@ -282,7 +423,8 @@ int decrypt_tls(unsigned char* buffer, size_t len) { // TODO: implement alerts
 
     switch (record.content_type) {
         case CT_ALERT:
-            return 2;
+            exit(EXIT_FAILURE);
+            break;
         case CT_HANDSHAKE:
             if (len < sizeof(TLS_plainttext_header)+sizeof(TLS_handshake)) return 2;
             return handshake_tls(buffer+record_offset, record.length);

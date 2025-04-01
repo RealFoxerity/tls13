@@ -6,10 +6,19 @@ struct {
     void * data;
 } typedef Vector;
 
+struct KeyShareNode {
+    unsigned short group;
+    Vector key_exchange;
+};
+
+struct KeyShares {
+    struct KeyShareNode node;
+    struct KeyShares * next;
+} typedef KeyShares;
 
 enum CipherSuites { // supported CipherSuites
     TLS_AES_128_GCM_SHA256 = 0x1301,
-    TLS_AES_256_GCM_SHA384 = 0x1302,
+    TLS_AES_256_GCM_SHA384 = 0x1302,        // supported
     TLS_CHACHA20_POLY1305_SHA256 = 0x1303,
     TLS_AES_128_CCM_SHA256 = 0x1304,
     TLS_AES_128_CCM_8_SHA256 = 0x1305,
@@ -46,8 +55,8 @@ enum ExtensionTypes { // ushort
     ET_PRE_SHARED_KEY = 41,                         /* RFC 8446 */ // REQUIRED for PSK
     ET_EARLY_DATA = 42,                             /* RFC 8446 */
     ET_SUPPORTED_VERSIONS = 43,                     /* RFC 8446 */ // REQUIRED, implemeneted check
-    ET_COOKIE = 44,                                 /* RFC 8446 */ // REQUIRED
-    ET_PSK_KEY_EXCHANGE_MODES = 45,                 /* RFC 8446 */ // REQUIRED for PSK, implemented check
+    ET_COOKIE = 44,                                 /* RFC 8446 */ // REQUIRED, but wont implemenent since it's never used either way
+    ET_PSK_KEY_EXCHANGE_MODES = 45,                 /* RFC 8446 */ // REQUIRED for PSK, implemented check, probably not implement since it's not used normally
     ET_CERTIFICATE_AUTHORITIES = 47,                /* RFC 8446 */
     ET_OID_FILTERS = 48,                            /* RFC 8446 */
     ET_POST_HANDSHAKE_AUTH = 49,                    /* RFC 8446 */
@@ -78,7 +87,7 @@ enum SignatureSchemes {
     SS_RSA_PSS_RSAE_SHA512 = 0x0806,
 
     /* EdDSA algorithms */
-    SS_ED25519 = 0x0807,
+    SS_ED25519 = 0x0807,     // supported
     SS_ED448 = 0x0808,
 
     /* RSASSA-PSS algorithms with public key OID RSASSA-PSS */
@@ -99,7 +108,7 @@ enum NamedGroups { // key share, ushort
     NG_SECP256R1 = 0x0017,
     NG_SECP384R1 = 0x0018,
     NG_SECP512R1 = 0x0019,
-    NG_X25519 = 0x001d,
+    NG_X25519 = 0x001d,   // only one going to be implemented
     NG_X448 = 0x001e,
     
     NG_FFDHE2048 = 0x0100,
@@ -124,39 +133,39 @@ enum AlertLevel { // uchar
 };
 
 enum AlertDescription { // uchar
-    AD_CLOSE_NOTIFY = 0,
-    AD_UNEXPECTED_MESSAGE = 10,
-    AD_BAD_RECORD_MAC = 20,
-    AD_RECORD_OVERFLOW = 22,
-    AD_HANDSHAKE_FAILURE = 40,
-    AD_BAD_CERTIFICATE = 42,
-    AD_UNSUPPORTED_CERTIFICATE = 43,
-    AD_CERTIFICATE_REVOKED = 44,
-    AD_CERTIFICATE_EXPIRED = 45,
-    AD_CERTIFICATE_UNKNOWN = 46,
-    AD_ILLEGAL_PARAMETER = 47,
-    AD_UNKNOWN_CA = 48,
-    AD_ACCESS_DENIED = 49,
-    AD_DECODE_ERROR = 50,
-    AD_DECRYPT_ERROR = 51,
-    AD_PROTOCOL_VERSION = 70,
-    AD_INSUFFICIENT_SECURITY = 71,
-    AD_INTERNAL_ERROR = 80,
-    AD_INAPPROPRIATE_FALLBACK = 86,
-    AD_USER_CANCELED = 90,
-    AD_MISSING_EXTENSION = 109,
-    AD_UNSUPPORTED_EXTENSION = 110,
-    AD_UNRECOGNIZED_NAME = 112,
-    AD_BAD_CERTIFICATE_STATUS_RESPONSE = 113,
-    AD_UNKNOWN_PSK_IDENTITY = 115,
-    AD_CERTIFICATE_REQUIRED = 116,
-    AD_NO_APPLICATION_PROTOCOL = 120,
+    AD_CLOSE_NOTIFY = 0,  // warn
+    AD_UNEXPECTED_MESSAGE =10,  // fatal
+    AD_BAD_RECORD_MAC = 20,  // fatal
+    AD_RECORD_OVERFLOW = 22,  // fatal
+    AD_HANDSHAKE_FAILURE = 40,  // fatal
+    AD_BAD_CERTIFICATE = 42,  // fatal
+    AD_UNSUPPORTED_CERTIFICATE = 43,  // fatal
+    AD_CERTIFICATE_REVOKED = 44,  // fatal
+    AD_CERTIFICATE_EXPIRED = 45,  // fatal
+    AD_CERTIFICATE_UNKNOWN = 46,  // fatal
+    AD_ILLEGAL_PARAMETER = 47,  // fatal
+    AD_UNKNOWN_CA = 48,  // fatal
+    AD_ACCESS_DENIED = 49,  // fatal
+    AD_DECODE_ERROR = 50,  // fatal
+    AD_DECRYPT_ERROR = 51,  // fatal
+    AD_PROTOCOL_VERSION = 70,  // fatal
+    AD_INSUFFICIENT_SECURITY = 71,  // fatal
+    AD_INTERNAL_ERROR = 80,  // fatal
+    AD_INAPPROPRIATE_FALLBACK = 86,  // fatal
+    AD_USER_CANCELED = 90,  // warn
+    AD_MISSING_EXTENSION = 109,  // fatal
+    AD_UNSUPPORTED_EXTENSION = 110,  // fatal
+    AD_UNRECOGNIZED_NAME = 112,  // fatal
+    AD_BAD_CERTIFICATE_STATUS_RESPONSE = 113,  // fatal
+    AD_UNKNOWN_PSK_IDENTITY = 115,  // fatal
+    AD_CERTIFICATE_REQUIRED = 116,  // fatal
+    AD_NO_APPLICATION_PROTOCOL = 120,  // fatal
 };
 
 struct Alert {
     unsigned char alert_level;
     unsigned char alert_description;
-};
+} __attribute__((packed));
 
 struct {
     unsigned char content_type;
@@ -167,7 +176,7 @@ struct {
 
 struct {
     unsigned char msg_type;
-    unsigned char length[3]; // uint24 ?????
+    unsigned char length[3]; // uint24 ????? HOW EVEN IF TLS_PLAINTEXT_HEADER HAS UNSIGNED SHORT (prolly pad but still)
 }__attribute__((packed)) typedef TLS_handshake;
 
 struct {
@@ -181,8 +190,16 @@ struct ClientHello {
     Vector legacy_session_id; // 0-32 bytes
     Vector cipher_suites; // uint8[2], 2-65534 bytes
     Vector legacy_compression_methods; // uint8 1-255, always 0
-    Vector Extension; // Extension, 8-65535, minimally supported versions, for only tls1.3 that would be 43 for ext id with 3 bytes of len, 2 bytes of tls versions and 0x0304 (0x002b0003020304)
+    Vector extensions; // Extension, 8-65535, minimally supported versions, for only tls1.3 that would be 43 for ext id with 3 bytes of len, 2 bytes of tls versions and 0x0304 (0x002b0003020304)
 };
 
+struct ServerHello {
+    unsigned short legacy_version; // 0x0303
+    unsigned char random[32];
+    Vector legacy_session_id; // 0 - 32
+    unsigned short cipher_suite; // better to work with than char[2]
+    unsigned char legacy_compression_method; // 0
+    Vector extensions;
+};
 
 #endif
