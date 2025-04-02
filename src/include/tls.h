@@ -1,6 +1,9 @@
 #ifndef TLS_H
 #define TLS_H
 
+#define TLS13_VERSION 0x0304
+#define TLS12_COMPAT_VERSION 0x0303
+#define TLS11_COMPAT_VERSION 0x0301
 struct {
     unsigned int len;
     void * data;
@@ -191,7 +194,7 @@ struct ClientHello {
     Vector cipher_suites; // uint8[2], 2-65534 bytes
     Vector legacy_compression_methods; // uint8 1-255, always 0
     Vector extensions; // Extension, 8-65535, minimally supported versions, for only tls1.3 that would be 43 for ext id with 3 bytes of len, 2 bytes of tls versions and 0x0304 (0x002b0003020304)
-};
+} __attribute__((packed));
 
 struct ServerHello {
     unsigned short legacy_version; // 0x0303
