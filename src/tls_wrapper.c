@@ -16,6 +16,7 @@
 #include "include/server.h"
 #include "include/tls.h"
 #include "include/tls_extensions.h"
+#include "include/memstructs.h"
 
 #define MIN(a,b) (a>b?b:a)
 #define MAX(a,b) (a<b?b:a)

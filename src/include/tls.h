@@ -4,10 +4,8 @@
 #define TLS13_VERSION 0x0304
 #define TLS12_COMPAT_VERSION 0x0303
 #define TLS11_COMPAT_VERSION 0x0301
-struct {
-    unsigned int len;
-    void * data;
-} typedef Vector;
+
+#include "memstructs.h"
 
 struct KeyShareNode {
     unsigned short group;
