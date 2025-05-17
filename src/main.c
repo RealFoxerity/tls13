@@ -20,7 +20,7 @@
 
 #include <errno.h>
 
-#define MAX_CLIENTS 15
+#define MAX_CLIENTS 1500
 #define DEFAULT_PORT 80
 #define DEFAULT_PORT_HTTPS 443
 
