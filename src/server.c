@@ -321,6 +321,7 @@ static inline void respond_get_request(int socket_fd, char* buffer) {
         sprintf(out, "HTTP/1.1 %d OK\r\nServer: %s\r\nContent-Type: %s\r\n\r\n", HTTP_OK, SERVER_NAME, identify_mime_type(path));
         header_size = strlen(out);
         file_len = 0;
+        send(socket_fd, out, strlen(out), 0);
     }
 
     END:
