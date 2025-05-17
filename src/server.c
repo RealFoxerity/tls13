@@ -1,3 +1,4 @@
+#include <linux/limits.h>
 #include <stdio.h> // fopen, ftell, rewind, fread
 #include <stdlib.h> // malloc, free
 #include <assert.h>
@@ -17,7 +18,7 @@
 #include "include/mime_types.h"
 #include "include/server.h"
 
-#define MAX_TIMEOUT 3
+#define MAX_TIMEOUT 10
 
 char * buffer = NULL, * out = NULL, * path = NULL, * line = NULL, * http_version = NULL, * requested_path = NULL;
 
@@ -27,8 +28,6 @@ char * buffer = NULL, * out = NULL, * path = NULL, * line = NULL, * http_version
 static inline void respond(char * buffer, int socket_fd);
 
 #define max(a,b) (a>b?a:b)
-
-extern const int true;
 
 extern char * real_root;
 
@@ -187,6 +186,26 @@ Content too large", HTTP_CONTENT_TOO_LARGE, SERVER_NAME);
 
 char * render_folder(char * path);
 
+static inline void naive_html_escape(char * path) {
+    // not yet implemented, should be for redirects
+}
+
+
+static inline void naive_html_deescape(char * escaped_path, size_t length) {
+    char escaped_letter = 0;
+    char buff[3] = {0};
+    for (int i = 0; i < length; i++) {
+        if (escaped_path[i] == '\0') break;
+        if (escaped_path[i] == '%') {
+            assert(i+3 < length);
+            strncpy(buff, &escaped_path[i+1], 2);
+            sscanf(buff, "%hhx", &escaped_letter);
+            escaped_path[i] = escaped_letter;
+            strncpy(&escaped_path[i+1], &escaped_path[i+3], length-3-i);
+        }
+    }
+}
+
 static inline void respond_get_request(int socket_fd, char* buffer) {
     if (strchrnul(buffer, '\r') != strchrnul(buffer, '\n') - 1) respond_bad_request(socket_fd);
     
@@ -218,7 +237,8 @@ static inline void respond_get_request(int socket_fd, char* buffer) {
     } else {
         if (sscanf(buffer, "GET %s %s\r\n", line, http_version) != 2 || strncmp(http_version, "HTTP/1.1", max(strlen(http_version), 8)) != 0) respond_bad_request(socket_fd);
     }
-    
+    naive_html_deescape(line, path_len);
+
     char * get_parameters = strchr(line, '?');
     if (get_parameters != NULL) *get_parameters = '\0';
 
@@ -234,6 +254,7 @@ static inline void respond_get_request(int socket_fd, char* buffer) {
     if (realpath(requested_path, path) == NULL) {
         free(requested_path);
         respond_not_found(socket_fd);
+        __builtin_unreachable();
     }
     free(requested_path);
 

@@ -34,9 +34,9 @@ const char* default_root = {"./webroot"};
 const char* default_domain = "*";
 int child_count = 0;
 
-const int true = 1;
+const int true_int = 1;
 
-void child_callback() {
+void child_callback(int signal) {
     fprintf(stderr, "Server thread terminated\n");
     child_count --;
     wait(NULL); // so that the child does not turn into a zombie
@@ -55,7 +55,7 @@ char * domain = NULL;
 char ip_client[16] = {0}; // max ipv4 text len
 struct sockaddr_in addr = {0}, addr_ssl = {0};
 
-void terminate() {
+void terminate(int signal) {
     fprintf(stderr, "Recieved SIGINT, exiting...\n");
     shutdown(socket_fd, SHUT_RDWR);
     close(socket_fd);
@@ -214,8 +214,8 @@ exit(EXIT_SUCCESS);
         exit(EXIT_FAILURE);
     }
 
-    setsockopt(socket_fd, SOL_SOCKET, SO_REUSEADDR, &true, sizeof(int)); // skips the TIME_WAIT state
-    setsockopt(socket_fd, SOL_SOCKET, SO_REUSEPORT, &true, sizeof(int)); // allows to have multiple servers handling multiple domains on the same port
+    setsockopt(socket_fd, SOL_SOCKET, SO_REUSEADDR, &true_int, sizeof(int)); // skips the TIME_WAIT state
+    setsockopt(socket_fd, SOL_SOCKET, SO_REUSEPORT, &true_int, sizeof(int)); // allows to have multiple servers handling multiple domains on the same port
 
     addr = (struct sockaddr_in){
         .sin_addr = ip,
@@ -235,8 +235,8 @@ exit(EXIT_SUCCESS);
             exit(EXIT_FAILURE);
         }
 
-        setsockopt(socket_fd_ssl, SOL_SOCKET, SO_REUSEADDR, &true, sizeof(int));
-        setsockopt(socket_fd_ssl, SOL_SOCKET, SO_REUSEPORT, &true, sizeof(int));
+        setsockopt(socket_fd_ssl, SOL_SOCKET, SO_REUSEADDR, &true_int, sizeof(int));
+        setsockopt(socket_fd_ssl, SOL_SOCKET, SO_REUSEPORT, &true_int, sizeof(int));
 
         addr_ssl = (struct sockaddr_in){
             .sin_addr = ip,
