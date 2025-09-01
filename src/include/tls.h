@@ -7,6 +7,8 @@
 
 #include "memstructs.h"
 
+//#define TLS_SERVER_HELLO_RETRY_REQUEST_MAGIC "\xCF\x21\xAD\x74\xE5\x9A\x61\x11\xBE\x1D\x8C\x02\x1E\x65\xB8\x91\xC2\xA2\x11\x16\x7A\xBB\x8C\x5E\x07\x9E\x09\xE2\xC8\xA8\x33\x9C" // sha256 of "HelloRetryRequest", see rfc8446 page 32
+#define TLS_BACKCOMP_SERVER_CHANGE_CIPHER_SPEC "\x14\x03\x03\x00\x01\x01"
 struct KeyShareNode {
     unsigned short group;
     Vector key_exchange;
@@ -40,29 +42,31 @@ enum HandshakeTypes { // uchar
     HT_MESSAGE_HASH = 254,
 };
 
-enum ExtensionTypes { // ushort
-    ET_SERVER_NAME = 0,                             /* RFC 6066 */ // REQUIRED, implemeneted check
-    ET_MAX_FRAGMENT_LENGTH = 1,                     /* RFC 6066 */
-    ET_STATUS_REQUEST = 5,                          /* RFC 6066 */
-    ET_SUPPORTED_GROUPS = 10,                       /* RFC 8422, 7919 */ // REQUIRED, implemented check
-    ET_SIGNATURE_ALGORITHMS = 13,                   /* RFC 8446 */ // REQUIRED, implemented check
-    ET_USE_SRTP = 14,                               /* RFC 5764 */
-    ET_HEARTBEAT = 15,                              /* RFC 6520 */
-    ET_APPLICATION_LAYER_PROTOCOL_NEGOTIATION = 16, /* RFC 7301 */
-    ET_SIGNED_CERTIFICATE_TIMESTAMP = 18,           /* RFC 6962 */
-    ET_CLIENT_CERTIFICATE_TYPE = 19,                /* RFC 7250 */
-    ET_SERVER_CERTIFICATE_TYPE = 20,                /* RFC 7250 */
-    ET_PADDING = 21,                                /* RFC 7685 */
-    ET_PRE_SHARED_KEY = 41,                         /* RFC 8446 */ // REQUIRED for PSK
-    ET_EARLY_DATA = 42,                             /* RFC 8446 */
-    ET_SUPPORTED_VERSIONS = 43,                     /* RFC 8446 */ // REQUIRED, implemeneted check
-    ET_COOKIE = 44,                                 /* RFC 8446 */ // REQUIRED, but wont implemenent since it's never used either way
-    ET_PSK_KEY_EXCHANGE_MODES = 45,                 /* RFC 8446 */ // REQUIRED for PSK, implemented check, probably not implement since it's not used normally
-    ET_CERTIFICATE_AUTHORITIES = 47,                /* RFC 8446 */
-    ET_OID_FILTERS = 48,                            /* RFC 8446 */
-    ET_POST_HANDSHAKE_AUTH = 49,                    /* RFC 8446 */
-    ET_SIGNATURE_ALGORITHMS_CERT = 50,              /* RFC 8446 */ // REQUIRED, implemented check
-    ET_KEY_SHARE = 51,                              /* RFC 8446 */ // REQUIRED, implemented check
+enum ExtensionTypes { // ushort, see rfc8446 page 37 for locations, wrong location = AD_ILLEGAL_PARAMETER
+    //CH = client hello, SH = server hello, EE = encrypted extensions, CT = certificate, CR = certificate request, NST = new session ticket, HRR = hello retry request (from server)
+    ET_SERVER_NAME = 0,                             /* CH, EE,      RFC 6066 */ // REQUIRED, implemeneted check
+    ET_MAX_FRAGMENT_LENGTH = 1,                     /* CH, EE,      RFC 6066 */
+    ET_STATUS_REQUEST = 5,                          /* CH, CR, CT,  RFC 6066 */
+    ET_SUPPORTED_GROUPS = 10,                       /* CH, EE,      RFC 8422, 7919 */ // REQUIRED, implemented check
+    ET_SIGNATURE_ALGORITHMS = 13,                   /* CH, CR,      RFC 8446 */ // REQUIRED, implemented check
+    ET_USE_SRTP = 14,                               /* CH, EE,      RFC 5764 */
+    ET_HEARTBEAT = 15,                              /* CH, EE,      RFC 6520 */
+    ET_APPLICATION_LAYER_PROTOCOL_NEGOTIATION = 16, /* CH, EE,      RFC 7301 */
+    ET_SIGNED_CERTIFICATE_TIMESTAMP = 18,           /* CH, CR, CT   RFC 6962 */
+    ET_CLIENT_CERTIFICATE_TYPE = 19,                /* CH, EE,      RFC 7250 */
+    ET_SERVER_CERTIFICATE_TYPE = 20,                /* CH, EE,      RFC 7250 */
+    ET_PADDING = 21,                                /* CH,          RFC 7685 */
+    ET_KEY_SHARE = 51,                              /* CH, SH, HRR, RFC 8446 */ // REQUIRED, implemented check
+    ET_PRE_SHARED_KEY = 41,                         /* CH, SH,      RFC 8446 */ // REQUIRED for PSK
+    ET_PSK_KEY_EXCHANGE_MODES = 45,                 /* CH,          RFC 8446 */ // REQUIRED for PSK, implemented check, probably not implement since it's not used normally
+    ET_EARLY_DATA = 42,                             /* CH, EE, NST  RFC 8446 */
+    ET_COOKIE = 44,                                 /* CH, HRR      RFC 8446 */ // REQUIRED, but wont implemenent since it's never used either way
+    ET_SUPPORTED_VERSIONS = 43,                     /* CH, SH, HRR  RFC 8446 */ // REQUIRED, implemeneted
+    ET_CERTIFICATE_AUTHORITIES = 47,                /* CH, CR       RFC 8446 */
+    ET_OID_FILTERS = 48,                            /* CR,          RFC 8446 */
+    ET_POST_HANDSHAKE_AUTH = 49,                    /* CH,          RFC 8446 */
+    ET_SIGNATURE_ALGORITHMS_CERT = 50,              /* CH, CR       RFC 8446 */ // REQUIRED, implemented check
+
     ET_SESSION_TICKET_IGNORE = 35,                  /* RFC 8446 */ // not required from server, but TLS clients include this extension usually
 };
 
@@ -106,9 +110,9 @@ enum SignatureSchemes {
 };
 
 enum NamedGroups { // key share, ushort
-    NG_SECP256R1 = 0x0017,
-    NG_SECP384R1 = 0x0018,
-    NG_SECP512R1 = 0x0019,
+    NG_SECP256R1 = 0x0017,// will try to implement these
+    NG_SECP384R1 = 0x0018,// will try to implement these
+    NG_SECP512R1 = 0x0019,// will try to implement these
     NG_X25519 = 0x001d,   // only one going to be implemented
     NG_X448 = 0x001e,
     
@@ -161,6 +165,12 @@ enum AlertDescription { // uchar
     AD_UNKNOWN_PSK_IDENTITY = 115,  // fatal
     AD_CERTIFICATE_REQUIRED = 116,  // fatal
     AD_NO_APPLICATION_PROTOCOL = 120,  // fatal
+};
+
+enum tls_state { // roughly what is written on page 120 of rfc8446
+    TS_SETTING_UP_INTERACTIVE, // START
+    TS_SETTING_UP_SERVER_SIDE, // RECVD_CH + NEGOTIATED
+    TS_READY                   // CONNECTED
 };
 
 struct Alert {
