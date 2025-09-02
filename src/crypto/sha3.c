@@ -29,7 +29,7 @@ static const char  keccak_l[] = {0,   1,   2,   3,   4,   5,    6};
 static void keccak_step_theta(char state_array[5][5][SHA3_W]) {
     char state_array_C[5][SHA3_W];
     char state_array_D[5][SHA3_W];
-    
+
     memset(state_array_C, 0, 5*SHA3_W);
     memset(state_array_D, 0, 5*SHA3_W);
 
@@ -120,18 +120,18 @@ static void keccak_step_chi(char state_array[5][5][SHA3_W]) {
 
 static char keccak_step_rc(int t) {
     static char bits[] = {
-        1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 1, 0, 0, 0, 1, 1, 1, 1, 0, 
-    1, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 1, 0, 0, 0, 0, 
-    1, 0, 1, 0, 0, 1, 1, 1, 1, 1, 0, 1, 0, 1, 0, 1, 0, 1, 1, 1, 
-    0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 1, 0, 1, 0, 1, 1, 0, 0, 1, 1, 
-    0, 0, 1, 0, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 0, 0, 1, 1, 0, 
-    1, 1, 1, 0, 1, 1, 1, 0, 0, 1, 0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 
-    0, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1, 0, 0, 0, 1, 1, 0, 0, 1, 1, 
-    1, 0, 0, 1, 1, 1, 1, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 1, 
-    0, 0, 0, 1, 0, 1, 1, 1, 0, 1, 0, 1, 1, 1, 1, 0, 1, 1, 0, 1, 
-    1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 1, 0, 1, 
-    1, 0, 1, 1, 0, 1, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 1, 1, 1, 0, 
-    1, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 
+        1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 1, 0, 0, 0, 1, 1, 1, 1, 0,
+    1, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 1, 0, 0, 0, 0,
+    1, 0, 1, 0, 0, 1, 1, 1, 1, 1, 0, 1, 0, 1, 0, 1, 0, 1, 1, 1,
+    0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 1, 0, 1, 0, 1, 1, 0, 0, 1, 1,
+    0, 0, 1, 0, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 0, 0, 1, 1, 0,
+    1, 1, 1, 0, 1, 1, 1, 0, 0, 1, 0, 1, 0, 1, 0, 0, 1, 0, 1, 0,
+    0, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1, 0, 0, 0, 1, 1, 0, 0, 1, 1,
+    1, 0, 0, 1, 1, 1, 1, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 1,
+    0, 0, 0, 1, 0, 1, 1, 1, 0, 1, 0, 1, 1, 1, 1, 0, 1, 1, 0, 1,
+    1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 1, 0, 1,
+    1, 0, 1, 1, 0, 1, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 1, 1, 1, 0,
+    1, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1,
     1, 0, 1, 0, 0, 1, 0, 0, 0, 1, 1, 1, 0, 0, 0, 1};
     return bits[MOD(t,255)];
 }
@@ -196,70 +196,17 @@ static void state_to_string(char state_array[5][5][SHA3_W], char * string_out) {
 }
 
 static void keccak_round(char state_array[5][5][SHA3_W], int round_factor) {
-    char string_temp[200] = {0};
-    state_to_string(state_array, string_temp);
-    printf("Start:\n");
-    for (int i = 0; i < 200; i++) {
-        if (i % 16 == 0) printf("\n");
-        printf("%02hhX ", string_temp[i]);
-    }
-    
-    printf("\n\n");
     keccak_step_theta(state_array);
-    state_to_string(state_array, string_temp);
-    printf("Theta:\n");
-    for (int i = 0; i < 200; i++) {
-        if (i % 16 == 0) printf("\n");
-        printf("%02hhX ", string_temp[i]);
-    }
-    printf("\n\n");
-
-    
     keccak_step_rho(state_array);
-    state_to_string(state_array, string_temp);
-    printf("Rho:\n");
-    for (int i = 0; i < 200; i++) {
-        if (i % 16 == 0) printf("\n");
-        printf("%02hhX ", string_temp[i]);
-    }
-    printf("\n\n");
-    
-    
     keccak_step_pi(state_array);
-    state_to_string(state_array, string_temp);
-    printf("Pi:\n");
-    for (int i = 0; i < 200; i++) {
-        if (i % 16 == 0) printf("\n");
-        printf("%02hhX ", string_temp[i]);
-    }
-    printf("\n\n");
-    
-    
     keccak_step_chi(state_array);
-    state_to_string(state_array, string_temp);
-    printf("Chi:\n");
-    for (int i = 0; i < 200; i++) {
-        if (i % 16 == 0) printf("\n");
-        printf("%02hhX ", string_temp[i]);
-    }
-    printf("\n\n");
-    
-    
     keccak_step_iota(state_array, round_factor);
-    state_to_string(state_array, string_temp);
-    printf("Iota:\n");
-    for (int i = 0; i < 200; i++) {
-        if (i % 16 == 0) printf("\n");
-        printf("%02hhX ", string_temp[i]);
-    }
-    printf("\n\n");
 }
 
 
 static size_t pad10_star_1(char ** input, size_t original_len, int block_size) { // https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.202.pdf page 19 (27)
     int j = MOD(-(long long)original_len*8 - 2 - 2, block_size*8); // -2 for 01 append, -2 for ones on both sides
-    printf("%d %d %lu \n", j, block_size*8, original_len);
-    
+
     size_t new_len = original_len + j/8 + ((j%8 != 0)?1:0);
     assert((*input = realloc(*input, new_len)));
 
@@ -282,7 +229,6 @@ static void do_keccak(char * string, int rounds, char * string_out) {
     string_to_state(state, string);
 
     for (int ir = 12 + 2*SHA3_L - rounds; ir <= 12 + 2*SHA3_L - 1; ir++) { // in sha384 from 0 to 23 incl -> 24 rounds
-        printf("Round %d\n", ir);
         keccak_round(state, ir);
     }
 
@@ -297,8 +243,6 @@ static void xor_string(char * string_a, char * string_b, size_t len) { // string
 
 static void keccak_sponge_sha3(char * string, int string_len, int hash_length, char * string_out) {
 
-    // BUG SOMEWHERE HERE, all steps are correct, all helpers are correct (maybe pad wrong?)
-
     int r = SHA3_B-hash_length*2;
     r /= 8; // bytes
 
@@ -306,12 +250,8 @@ static void keccak_sponge_sha3(char * string, int string_len, int hash_length, c
     assert(new_input);
     memset(new_input, 0, string_len);
     memcpy(new_input, string, string_len);
-    
-    string_len = pad10_star_1(&new_input, string_len, r);
 
-    for (int i = 0; i < string_len; i++) {
-        printf("%02hhX", new_input[i]);
-    }
+    string_len = pad10_star_1(&new_input, string_len, r);
 
     int n = string_len / r;
 
@@ -331,30 +271,27 @@ static void keccak_sponge_sha3(char * string, int string_len, int hash_length, c
     memset(z, 0, hash_length/8 + r);
 
     for (int i = 0; i < n; i++) {
-        memcpy(temp, &string[i*r], r);
+        memset(temp, 0, SHA3_B/8);
+        memcpy(temp, &new_input[i*r], r);
+
         xor_string(s, temp, SHA3_B/8);
-        
-        printf("Post xor, n %d: ", i);
-        for (int i = 0; i < string_len; i++) {
-            printf("%02hhX", new_input[i]);
-        }
-        printf("\n\n");
 
         do_keccak(s, 12+2*SHA3_L, s2);
         memcpy(s, s2, SHA3_B/8);
 
     }
-    
+
     while(1) {
-        if (z_off >= hash_length/8) {
+        memcpy(&z[z_off], s, r);
+        z_off += r;
+
+        if (hash_length/8 <= z_off) {
             memcpy(string_out, z, hash_length/8);
             break;
         }
 
-        do_keccak(s2, 12+2*SHA3_L, s);
-        memcpy(&z[z_off], s2, r);
-        memcpy(s2, s, SHA3_B/8);
-        z_off += r;
+        do_keccak(s, 12+2*SHA3_L, s2);
+        memcpy(s, s2, SHA3_B/8);
     }
     free(new_input);
     return;
@@ -362,10 +299,4 @@ static void keccak_sponge_sha3(char * string, int string_len, int hash_length, c
 
 void sha3_384_hash(char * hash_out, char * input, size_t input_len) { // have to copy the array due to needed padding, TODO: rewrite to not need that
     keccak_sponge_sha3(input, input_len, 384, hash_out); // sha384...
-
-    printf("\n");
-    for (int i = 0; i < 384/8; i++) {
-        printf("%02hhX", hash_out[i]);
-    }
-    printf("\n");
 }
