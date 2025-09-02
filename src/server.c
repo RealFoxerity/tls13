@@ -1,3 +1,5 @@
+#define _GNU_SOURCE // on some systems (e.g. raspbian) some functions, at least strchrnul, are not available without this macro
+
 #include <linux/limits.h>
 #include <stdio.h> // fopen, ftell, rewind, fread
 #include <stdlib.h> // malloc, free
