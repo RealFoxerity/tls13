@@ -247,7 +247,7 @@ static void xor_string(char * string_a, char * string_b, size_t len) { // string
     }
 }
 
-static void keccak_sponge_sha3(char * string, int string_len, int hash_length, char * string_out) {
+static void keccak_sponge_sha3(const unsigned char * string, int string_len, int hash_length, unsigned char * string_out) {
 
     int r = SHA3_B-hash_length*2;
     r /= 8; // bytes
@@ -303,19 +303,19 @@ static void keccak_sponge_sha3(char * string, int string_len, int hash_length, c
     return;
 }
 
-void sha3_sum_internal(char * hash_out, int hash_len_bits, char * input, size_t input_len) { // have to copy the array due to needed padding, TODO: rewrite to not need that
+void sha3_sum_internal(unsigned char * hash_out, int hash_len_bits, const unsigned char * input, size_t input_len) { // have to copy the array due to needed padding, TODO: rewrite to not need that
     keccak_sponge_sha3(input, input_len, hash_len_bits, hash_out); // sha384...
 }
 
-void sha3_224_sum(char * hash_out, char * input, int input_len) {
+void sha3_224_sum(unsigned char * hash_out, const unsigned char * input, int input_len) {
     sha3_sum_internal(hash_out, 224, input, input_len);
 }
-void sha3_256_sum(char * hash_out, char * input, int input_len) {
+void sha3_256_sum(unsigned char * hash_out, const unsigned char * input, int input_len) {
     sha3_sum_internal(hash_out, 256, input, input_len);
 }
-void sha3_384_sum(char * hash_out, char * input, int input_len) {
+void sha3_384_sum(unsigned char * hash_out, const unsigned char * input, int input_len) {
     sha3_sum_internal(hash_out, 384, input, input_len);
 }
-void sha3_512_sum(char * hash_out, char * input, int input_len) {
+void sha3_512_sum(unsigned char * hash_out, const unsigned char * input, int input_len) {
     sha3_sum_internal(hash_out, 512, input, input_len);
 }

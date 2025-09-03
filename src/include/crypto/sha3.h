@@ -8,9 +8,9 @@
 #define SHA3_384_HASH_BYTES  (384/8)
 #define SHA3_512_HASH_BYTES  (512/8)
 
-void sha3_224_sum(char * hash_out, char * input, int input_len);
-void sha3_256_sum(char * hash_out, char * input, int input_len);
-void sha3_384_sum(char * hash_out, char * input, int input_len);
-void sha3_512_sum(char * hash_out, char * input, int input_len);
+void sha3_224_sum(unsigned char * hash_out, const unsigned char * input, int input_len);
+void sha3_256_sum(unsigned char * hash_out, const unsigned char * input, int input_len);
+void sha3_384_sum(unsigned char * hash_out, const unsigned char * input, int input_len);
+void sha3_512_sum(unsigned char * hash_out, const unsigned char * input, int input_len);
 
 #endif

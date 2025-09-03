@@ -192,7 +192,7 @@ const uint32_t sha1_iv[SHA1_WORK_VARS] = {
     0xc3d2e1f0,
 };
 
-void sha1_sum(char * hash_out, char * input, uint64_t input_len) {
+void sha1_sum(unsigned char * hash_out, const unsigned char * input, uint64_t input_len) {
     uint32_t a = 0, b = 0, c = 0, d = 0, e = 0, temp = 0;
     uint32_t message_schedule[SHA1_MESSAGE_SCHED_LEN] = {0};
 
@@ -268,7 +268,7 @@ const uint32_t sha224_iv[SHA256_WORK_VARS] = {
     0xbefa4fa4
 };
 
-static void sha256_sum_internal(char * hash_out, int hash_vars, char * input, uint64_t input_len, const uint32_t* iv) {
+static void sha256_sum_internal(unsigned char * hash_out, int hash_vars, const unsigned char * input, uint64_t input_len, const uint32_t* iv) {
     uint32_t a = 0, b = 0, c = 0, d = 0, e = 0, f = 0, g = 0, h = 0, temp1 = 0, temp2 = 0;
     uint32_t message_schedule[SHA256_MESSAGE_SCHED_LEN] = {0};
 
@@ -332,11 +332,11 @@ static void sha256_sum_internal(char * hash_out, int hash_vars, char * input, ui
     memcpy(hash_out, hash_values[input_len/(SHA256_MESSAGE_BLOCK/8)], sizeof(uint32_t)*hash_vars);
 }
 
-void sha256_sum(char * hash_out, char * input, uint64_t input_len) {
+void sha256_sum(unsigned char * hash_out, const unsigned char * input, uint64_t input_len) {
     sha256_sum_internal(hash_out, 8, input, input_len, sha256_iv);
 }
 
-void sha224_sum(char * hash_out, char * input, uint64_t input_len) {
+void sha224_sum(unsigned char * hash_out, const unsigned char * input, uint64_t input_len) {
     sha256_sum_internal(hash_out, 7,  input, input_len, sha224_iv);
 }
 
@@ -386,7 +386,7 @@ const uint64_t sha512_256_iv[SHA512_WORK_VARS] = {
     0x0EB72DDC81C52CA2
 };
 
-void sha512_sum_internal(char * hash_out, int hash_len, char * input, uint128_t input_len, const uint64_t* iv) {
+void sha512_sum_internal(unsigned char * hash_out, int hash_len, const unsigned char * input, uint128_t input_len, const uint64_t* iv) {
     uint64_t a = 0, b = 0, c = 0, d = 0, e = 0, f = 0, g = 0, h = 0, temp1 = 0, temp2 = 0;
     uint64_t message_schedule[SHA512_MESSAGE_SCHED_LEN] = {0};
 
@@ -450,18 +450,18 @@ void sha512_sum_internal(char * hash_out, int hash_len, char * input, uint128_t 
     memcpy(hash_out, hash_values[input_len/(SHA512_MESSAGE_BLOCK/8)], hash_len);
 }
 
-void sha512_sum(char * hash_out, char * input, uint128_t input_len) {
+void sha512_sum(unsigned char * hash_out, const unsigned char * input, uint128_t input_len) {
     sha512_sum_internal(hash_out, sizeof(uint64_t)*8, input, input_len, sha512_iv);
 }
-void sha384_sum(char * hash_out, char * input, uint128_t input_len) {
+void sha384_sum(unsigned char * hash_out, const unsigned char * input, uint128_t input_len) {
     sha512_sum_internal(hash_out, sizeof(uint64_t)*7, input, input_len, sha384_iv);
 }
 
 // NOTE: FIPS 180 does include a function to generate these IVs based on _t, however since others aren't officially 
 // approved and FIPS 180 also includes the IVs for these, i chose to ignore the function, see page 16(21) - 17 (22)
-void sha512_224_sum(char * hash_out, char * input, uint128_t input_len) {
+void sha512_224_sum(unsigned char * hash_out, const unsigned char * input, uint128_t input_len) {
     sha512_sum_internal(hash_out, SHA512_224_HASH_BYTES, input, input_len, sha512_224_iv);
 }
-void sha512_256_sum(char * hash_out, char * input, uint128_t input_len) {
+void sha512_256_sum(unsigned char * hash_out, const unsigned char * input, uint128_t input_len) {
     sha512_sum_internal(hash_out, SHA512_256_HASH_BYTES, input, input_len, sha512_256_iv);
 }
