@@ -12,11 +12,24 @@
 
 // TODO: sha2 uses big endian, this code works on my LE machine, i don't have any big endian machines, not tested for functionality - test in a vm?
 
+#if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+#warning "This sha2 implementation is untested on big endian"
+#endif
+
+#ifndef __SIZEOF_INT128__
+#error "Cannot compile on platform without 128bit wide ints"
+#endif
+
 
 static inline uint128_t htobe128(uint128_t x) {
     uint128_t orig_x = x;
+    #if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__ // no clue if works tbh
     ((uint64_t*)(&x))[0] = htobe64((uint64_t)(orig_x>>(sizeof(uint128_t)*8/2)));
     ((uint64_t*)(&x))[1] = htobe64((uint64_t)orig_x);
+    #else 
+    ((uint64_t*)(&x))[1] = htobe64((uint64_t)(orig_x>>(sizeof(uint128_t)*8/2)));
+    ((uint64_t*)(&x))[0] = htobe64((uint64_t)orig_x);
+    #endif
     return x;
 }
 
@@ -431,7 +444,7 @@ void sha512_sum_internal(char * hash_out, int hash_len, char * input, uint128_t 
     }
     free(new_input);
     for (int t = 0; t < SHA512_WORK_VARS; t++) {
-        hash_values[input_len/(SHA512_MESSAGE_BLOCK/8)][t] = be64toh(hash_values[input_len/(SHA512_MESSAGE_BLOCK/8)][t]);
+        hash_values[input_len/(SHA512_MESSAGE_BLOCK/8)][t] = htobe64(hash_values[input_len/(SHA512_MESSAGE_BLOCK/8)][t]);
     }
     //memcpy(hash_out, hash_values[input_len/(SHA512_MESSAGE_BLOCK/8)], sizeof(uint64_t)*hash_vars);
     memcpy(hash_out, hash_values[input_len/(SHA512_MESSAGE_BLOCK/8)], hash_len);
