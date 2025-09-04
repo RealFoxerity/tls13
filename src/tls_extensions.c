@@ -60,7 +60,9 @@ Vector parse_supported_groups_extension(unsigned char *buffer, unsigned short le
 KeyShares parse_key_share_groups_extension(unsigned char *buffer, unsigned short len) { // kill me
     KeyShares out = {0};
     KeyShares * curr = &out;
-    Vector base = parse_extension_lenshort_generic(buffer, len);
+    Vector base = {0};
+    base = parse_extension_lenshort_generic(buffer, len);
+    assert(base.data);
 
     for (int i = 0; i < base.len;) {
         assert(i+2 <= base.len);

@@ -133,7 +133,7 @@ int main() {
 
     memset(hash, 0, AES_BLOCK_SIZE);
 
-    printf("Testing AES-128 encryption\n");
+    printf("Testing raw AES-128 encryption\n");
     aes_128_enc(aes_data[0], hash, aes_keys[0]);
     for (int i = 0; i < AES_BLOCK_SIZE; i++) {
         printf("%02hhx ", hash[i]);
@@ -146,7 +146,7 @@ int main() {
 
     memset(hash, 0, AES_BLOCK_SIZE);
 
-    printf("Testing AES-128 decryption\n");
+    printf("Testing raw AES-128 decryption\n");
     aes_128_dec(aes_ciphertext[0], hash, aes_keys[0]);
     for (int i = 0; i < AES_BLOCK_SIZE; i++) {
         printf("%02hhx ", hash[i]);
