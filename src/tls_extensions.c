@@ -72,9 +72,9 @@ KeyShares parse_key_share_groups_extension(unsigned char *buffer, unsigned short
         i+= 2+curr->node.key_exchange.len+2; 
 
         if (i < base.len-1) {
-            curr->next = malloc(sizeof(struct KeyShareNode));
+            curr->next = malloc(sizeof(struct KeyShares));
             assert(curr->next != NULL);
-            memset(curr->next, 0, sizeof(struct KeyShareNode));
+            memset(curr->next, 0, sizeof(struct KeyShares));
             curr = curr->next;
         } else {
             curr->next = NULL; // to be 100000% sure

@@ -289,7 +289,8 @@ int parse_extensions(struct ClientHello CH) { // TODO: parse extentions .... :D
     if (chosen_key_share.group == 0) return -AD_HANDSHAKE_FAILURE;
 
     curr = &key_shares; // cleanup key_shares
-    KeyShares prev = key_shares;
+    KeyShares prev = {0};
+    prev = key_shares;
     do {
         prev = *curr;
         if (curr != &key_shares) free(curr);
