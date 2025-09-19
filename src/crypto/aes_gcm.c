@@ -38,7 +38,7 @@ static inline void gcm_inc(int lower_bit_count, uint8_t string[GCM_BLOCK_SIZE]) 
     //string[lower_bit_count/8] |= temp & and_mask;
     //#else
     for (int i = GCM_BLOCK_SIZE - 1; i > GCM_BLOCK_SIZE - 1 - (lower_bit_count/8); i--) {
-        if (++ string[i] == 0) return; // no char overflow    
+        if (++ string[i] != 0) return; // no char overflow    
     }
  
     if (lower_bit_count % 8 == 0) return;
@@ -107,7 +107,7 @@ static uint8_t * gcm_gctr(const uint8_t * key, int key_len, const uint8_t initia
     assert(bitstring_out);
     memset(bitstring_out, 0, bitstring_len);
 
-    size_t n = bitstring_len/GCM_BLOCK_SIZE + ((bitstring_len%GCM_BLOCK_SIZE) == 0? 0:1);
+    volatile size_t n = bitstring_len/GCM_BLOCK_SIZE + ((bitstring_len%GCM_BLOCK_SIZE) == 0? 0:1);
 
     uint8_t cb[GCM_BLOCK_SIZE] = {0};
     memcpy(cb, initial_counter_block, GCM_BLOCK_SIZE);
@@ -214,8 +214,8 @@ static uint8_t * aes_gcm_authenticate_encryption_internal( // returns ciphertext
     memcpy(block_s_in, additional_auth_data, aad_len);
     memcpy(block_s_in + aad_len + aad_pad_blocks, ciphertext, data_len);
 
-    *(uint64_t*)(block_s_in + aad_len + aad_pad_blocks + data_len + data_pad_blocks) = htobe64(aad_len);
-    *(uint64_t*)(block_s_in + aad_len + aad_pad_blocks + data_len + data_pad_blocks + sizeof(uint64_t)) = htobe64(data_len);
+    *(uint64_t*)(block_s_in + aad_len + aad_pad_blocks + data_len + data_pad_blocks) = htobe64(aad_len*8); // len is in BITS !!!!
+    *(uint64_t*)(block_s_in + aad_len + aad_pad_blocks + data_len + data_pad_blocks + sizeof(uint64_t)) = htobe64(data_len*8);
 
     uint128_t block_s = gcm_ghash(bytes_to_uint128(subkey), block_s_in, (aad_len + data_len + data_pad_blocks + aad_pad_blocks + GCM_BLOCK_SIZE)/GCM_BLOCK_SIZE);
     uint128_to_bytes(block_s, tempblock);

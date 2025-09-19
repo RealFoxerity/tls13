@@ -8,7 +8,7 @@ CRYPTO_OBJS=$(shell find src/crypto -name '*.c')
 all: $(OBJS) tests
 	mkdir -p build
 	$(CC) $(CFLAGS) $(LDFLAGS) $(OBJS) -o build/http
-	echo Setting CAP_NET_BIND_SERVICE...; (sudo setcap cap_net_bind_service=ep build/http || echo Failed)
+	#echo Setting CAP_NET_BIND_SERVICE...; (sudo setcap cap_net_bind_service=ep build/http || echo Failed)
 
 tests: tests_crypto
 tests_crypto: $(CRYPTO_OBJS)
@@ -19,7 +19,7 @@ release: $(OBJS)
 	mkdir -p build
 	$(CC) $(CFLAGS) $(LDFLAGS) $(OBJS) -o build/http
 	strip -s build/http
-	echo Setting CAP_NET_BIND_SERVICE...; (sudo setcap cap_net_bind_service=ep build/http || echo Failed)
+	#echo Setting CAP_NET_BIND_SERVICE...; (sudo setcap cap_net_bind_service=ep build/http || echo Failed)
 
 clean:
 	rm -rf build
