@@ -158,11 +158,41 @@ int main() {
     }
     printf("\n");
 
-    printf("Testing AES-128-GCM AEAD Authenticated Encryption - test case 0\n");
-    uint8_t gcm_test_0_k[AES_128_KEY_LEN] = {0};
+    printf("Testing AES-128-GCM AEAD Authenticated Encryption - test case 1\n");
+    uint8_t gcm_test_1_k[AES_128_KEY_LEN] = {0};
+    const uint8_t gcm_test_1_aead_expected[] = "\x58\xe2\xfc\xce\xfa\x7e\x30\x61\x36\x7f\x1d\x57\xa4\xe7\x45\x5a";
     uint8_t gcm_test_aead_tag[GCM_BLOCK_SIZE] = {0};
-    uint8_t gcm_test_0_iv[12] = {0};
-    uint8_t * ciphertext_gcm = aes_128_gcm_enc(NULL, 0, NULL, 0, gcm_test_0_iv, 12, gcm_test_aead_tag, gcm_test_0_k);
+    uint8_t gcm_test_1_iv[12] = {0};
+    uint8_t * ciphertext_gcm = aes_128_gcm_enc(NULL, 0, NULL, 0, gcm_test_1_iv, 12, gcm_test_aead_tag, gcm_test_1_k);
+    for (int i = 0; i < sizeof(gcm_test_1_aead_expected) -1; i++) { //null byte
+        if (gcm_test_aead_tag[i] != gcm_test_1_aead_expected[i]) {
+            printf("Test 1 authenticated encrypt failed on byte %d - AEAD tag incorrect!\n", i);
+            break;
+        }
+    }
     free(ciphertext_gcm);
+
+    printf("Testing AES-128-GCM AEAD Authenticated Encryption - test case 2\n");
+    uint8_t gcm_test_2_k[AES_128_KEY_LEN] = {0};
+    uint8_t gcm_test_2_p[AES_BLOCK_SIZE] = {0};
+    const uint8_t gcm_test_2_aead_expected[] = "\xab\x6e\x47\xd4\x2c\xec\x13\xbd\xf5\x3a\x67\xb2\x12\x57\xbd\xdf";
+    const uint8_t gcm_test_2_ciphertext_expected[] = "\x03\x88\xda\xce\x60\xb6\xa3\x92\xf3\x28\xc2\xb9\x71\xb2\xfe\x78";
+    memset(gcm_test_aead_tag, 0, GCM_BLOCK_SIZE);
+    uint8_t gcm_test_2_iv[12] = {0};
+    ciphertext_gcm = aes_128_gcm_enc(gcm_test_2_p, AES_BLOCK_SIZE, NULL, 0, gcm_test_2_iv, 12, gcm_test_aead_tag, gcm_test_2_k);
+    for (int i = 0; i < sizeof(gcm_test_2_aead_expected) - 1; i++) {
+        if (gcm_test_aead_tag[i] != gcm_test_2_aead_expected[i]) {
+            printf("Test 2 authenticated encrypt failed on byte %d - AEAD tag incorrect!\n", i);
+            break;
+        }
+    }
+    for (int i = 0; i < sizeof(gcm_test_2_ciphertext_expected); i++) {
+        if (ciphertext_gcm[i] != gcm_test_2_ciphertext_expected[i]) {
+            printf("Test 2 authenticated encrypt failed on byte %d - Ciphertext incorrect!\n", i);
+            break;
+        }
+    }
+    free(ciphertext_gcm);
+
     return 0;
 }

@@ -135,8 +135,8 @@ static uint8_t * gcm_gctr(const uint8_t * key, int key_len, const uint8_t initia
     }
 
     uint8_t temp_block_x[GCM_BLOCK_SIZE] = {0}; // the simplified point 7
-    memcpy(temp_block_x, &bitstring[(n-1)*GCM_BLOCK_SIZE], (bitstring_len%GCM_BLOCK_SIZE == 0 )? GCM_BLOCK_SIZE:bitstring_len%GCM_BLOCK_SIZE);
-    
+    memcpy(temp_block_x, &bitstring[(n-1)*GCM_BLOCK_SIZE], (bitstring_len%GCM_BLOCK_SIZE == 0 )? GCM_BLOCK_SIZE:(bitstring_len%GCM_BLOCK_SIZE));
+
     switch (key_len) {
         case AES_128_KEY_LEN:
             aes_128_enc(cb, temp_block, key);
@@ -162,7 +162,7 @@ static uint8_t * aes_gcm_authenticate_encryption_internal( // returns ciphertext
         const uint8_t * additional_auth_data, size_t aad_len, 
         const uint8_t * IV, size_t IV_len, 
         uint8_t * auth_tag_out, size_t auth_tag_len) { // tag len values depend on gcm mode
-    uint8_t subkey[GCM_BLOCK_SIZE] = {0};
+    uint8_t subkey[GCM_BLOCK_SIZE] = {0}; // subhash, H
     uint8_t tempblock[GCM_BLOCK_SIZE] = {0};
     switch (key_len) {
         case AES_128_KEY_LEN:
@@ -179,7 +179,8 @@ static uint8_t * aes_gcm_authenticate_encryption_internal( // returns ciphertext
             exit(-1);
     }
 
-    uint8_t pre_counter_block[GCM_BLOCK_SIZE] = {0};
+    uint8_t pre_counter_block[GCM_BLOCK_SIZE] = {0}; // J0, Y0 in second source
+    uint8_t pre_counter_block_2[GCM_BLOCK_SIZE] = {0}; // gcm_gctr for auth tag needs original PCB, inc before ciphertext breaks auth tag
     if (IV_len == 96/8) { // see page 15(23)
         memcpy(pre_counter_block, IV, IV_len);
         pre_counter_block[GCM_BLOCK_SIZE - 1] |= 1;
@@ -198,10 +199,10 @@ static uint8_t * aes_gcm_authenticate_encryption_internal( // returns ciphertext
         free(padded_iv);
         uint128_to_bytes(pcb_temp, pre_counter_block);
     }
-
+    memcpy(pre_counter_block_2, pre_counter_block, GCM_BLOCK_SIZE);
     gcm_inc(32, pre_counter_block);
     uint8_t * ciphertext = gcm_gctr(key, key_len, pre_counter_block, plaintext, data_len);
-    assert(ciphertext);
+    assert(ciphertext || data_len == 0);
 
     size_t data_pad_blocks = GCM_BLOCK_SIZE * (data_len/GCM_BLOCK_SIZE + (data_len%GCM_BLOCK_SIZE != 0?1:0)) - data_len;
     size_t aad_pad_blocks = GCM_BLOCK_SIZE * (aad_len/GCM_BLOCK_SIZE + (aad_len%GCM_BLOCK_SIZE != 0?1:0)) - aad_len;
@@ -220,7 +221,7 @@ static uint8_t * aes_gcm_authenticate_encryption_internal( // returns ciphertext
     uint128_to_bytes(block_s, tempblock);
     free(block_s_in);
 
-    uint8_t * tag = gcm_gctr(key, key_len, pre_counter_block, tempblock, GCM_BLOCK_SIZE);
+    uint8_t * tag = gcm_gctr(key, key_len, pre_counter_block_2, tempblock, GCM_BLOCK_SIZE);
     
     memcpy(auth_tag_out, tag, auth_tag_len);
     free(tag);
