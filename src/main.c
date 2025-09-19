@@ -218,7 +218,7 @@ exit(EXIT_SUCCESS);
     setsockopt(socket_fd, SOL_SOCKET, SO_REUSEPORT, &true_int, sizeof(int)); // allows to have multiple servers handling multiple domains on the same port
 
     addr = (struct sockaddr_in){
-        .sin_addr = ip,
+        .sin_addr = {ip},
         .sin_port = port,
         .sin_family = AF_INET,
         .sin_zero = {0}
@@ -239,7 +239,7 @@ exit(EXIT_SUCCESS);
         setsockopt(socket_fd_ssl, SOL_SOCKET, SO_REUSEPORT, &true_int, sizeof(int));
 
         addr_ssl = (struct sockaddr_in){
-            .sin_addr = ip,
+            .sin_addr = {ip},
             .sin_port = ssl_port,
             .sin_family = AF_INET,
             .sin_zero = {0}
@@ -309,11 +309,13 @@ exit(EXIT_SUCCESS);
         fprintf(stderr, "[%s] Recieved connection from %s:%d\n", time_char, ip_client, htons(addr.sin_port));
 
         //switch (fork()) {
+        char out = EXIT_SUCCESS;
         switch (testing?0:fork()) {
                 case 0: // child
                 if (!connect_is_ssl) server(conn_fd);
-                else ssl_wrapper(conn_fd);
-                exit(EXIT_SUCCESS);
+                else out = ssl_wrapper(conn_fd);
+                free(real_root);
+                exit(out);
                 break;
             default:
                 close(conn_fd);

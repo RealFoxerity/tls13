@@ -1,3 +1,4 @@
+#include <stdint.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include "../include/crypto/sha3.h"
@@ -156,5 +157,12 @@ int main() {
         }
     }
     printf("\n");
+
+    printf("Testing AES-128-GCM AEAD Authenticated Encryption - test case 0\n");
+    uint8_t gcm_test_0_k[AES_128_KEY_LEN] = {0};
+    uint8_t gcm_test_aead_tag[GCM_BLOCK_SIZE] = {0};
+    uint8_t gcm_test_0_iv[12] = {0};
+    uint8_t * ciphertext_gcm = aes_128_gcm_enc(NULL, 0, NULL, 0, gcm_test_0_iv, 12, gcm_test_aead_tag, gcm_test_0_k);
+    free(ciphertext_gcm);
     return 0;
 }

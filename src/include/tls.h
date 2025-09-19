@@ -7,7 +7,7 @@
 
 #include "memstructs.h"
 
-//#define TLS_SERVER_HELLO_RETRY_REQUEST_MAGIC "\xCF\x21\xAD\x74\xE5\x9A\x61\x11\xBE\x1D\x8C\x02\x1E\x65\xB8\x91\xC2\xA2\x11\x16\x7A\xBB\x8C\x5E\x07\x9E\x09\xE2\xC8\xA8\x33\x9C" // sha256 of "HelloRetryRequest", see rfc8446 page 32
+#define TLS_SERVER_HELLO_RETRY_REQUEST_MAGIC "\xCF\x21\xAD\x74\xE5\x9A\x61\x11\xBE\x1D\x8C\x02\x1E\x65\xB8\x91\xC2\xA2\x11\x16\x7A\xBB\x8C\x5E\x07\x9E\x09\xE2\xC8\xA8\x33\x9C" // sha256 of "HelloRetryRequest", see rfc8446 page 32
 #define TLS_BACKCOMP_SERVER_CHANGE_CIPHER_SPEC "\x14\x03\x03\x00\x01\x01"
 struct KeyShareNode {
     unsigned short group;
@@ -20,7 +20,7 @@ struct KeyShares {
 } typedef KeyShares;
 
 enum CipherSuites { // supported CipherSuites
-    TLS_AES_128_GCM_SHA256 = 0x1301,
+    TLS_AES_128_GCM_SHA256 = 0x1301,        // supported
     TLS_AES_256_GCM_SHA384 = 0x1302,        // supported
     TLS_CHACHA20_POLY1305_SHA256 = 0x1303,
     TLS_AES_128_CCM_SHA256 = 0x1304,
@@ -75,6 +75,61 @@ enum PskKeyExchangeModes { // uchar
     PKEM_DHE_KE = 1,
 };
 
+
+/*
+firefox supports the following: (everything except edwards)
+0x0403 = SS_ECDSA_SECP256R1_SHA256
+0x0503 = SS_ECDSA_SECP384R1_SHA384
+0x0603 = SS_ECDSA_SECP521R1_SHA512
+0x0804 = SS_RSA_PSS_RSAE_SHA256
+0x0805 = SS_RSA_PSS_RSAE_SHA384
+0x0806 = SS_RSA_PSS_RSAE_SHA512
+0x0401 = SS_RSA_PKCS1_SHA256
+0x0501 = SS_RSA_PKCS1_SHA384
+0x0601 = SS_RSA_PKCS1_SHA512
+0x0203 = SS_ECDSA_SHA1
+0x0201 = SS_RSA_PKCS1_SHA1
+
+chromium supports the following:
+0x0403 = SS_ECDSA_SECP256R1_SHA256
+0x0804 = SS_RSA_PSS_RSAE_SHA256
+0x0401 = SS_RSA_PKCS1_SHA256
+0x0503 = SS_ECDSA_SECP384R1_SHA384
+0x0805 = SS_RSA_PSS_RSAE_SHA384
+0x0501 = SS_RSA_PKCS1_SHA384
+0x0806 = SS_RSA_PSS_RSAE_SHA512
+0x0601 = SS_RSA_PKCS1_SHA512
+
+curl supports the following: (literally everything and then some)
+0x0905 = ?
+0x0906 = ?
+0x0904 = ?
+0x0403 = SS_ECDSA_SECP256R1_SHA256
+0x0503 = SS_ECDSA_SECP384R1_SHA384
+0x0603 = SS_ECDSA_SECP521R1_SHA512
+0x0807 = SS_ED25519
+0x0808 = SS_ED448
+0x081a = ?
+0x081b = ?
+0x081c = ?
+0x0809 = SS_RSA_PSS_PSS_SHA256
+0x080a = SS_RSA_PSS_PSS_SHA384
+0x080b = SS_RSA_PSS_PSS_SHA512
+0x0804 = SS_RSA_PSS_RSAE_SHA256
+0x0805 = SS_RSA_PSS_RSAE_SHA384
+0x0806 = SS_RSA_PSS_RSAE_SHA512
+0x0401 = SS_RSA_PKCS1_SHA256
+0x0501 = SS_RSA_PKCS1_SHA384
+0x0601 = SS_RSA_PKCS1_SHA512
+0x0303 = ?
+0x0301 = ?
+0x0302 = ?
+0x0402 = ?
+0x0502 = ?
+0x0602 = ?
+
+so I decided to instead of ed25519 (the original idea) to implement SS_ECDSA_SECPXXXR1_SHAXXX
+*/
 enum SignatureSchemes {
     /* RSASSA-PKCS1-v1_5 algorithms */
     SS_RSA_PKCS1_SHA256 = 0x0401,
@@ -92,7 +147,7 @@ enum SignatureSchemes {
     SS_RSA_PSS_RSAE_SHA512 = 0x0806,
 
     /* EdDSA algorithms */
-    SS_ED25519 = 0x0807,     // supported
+    SS_ED25519 = 0x0807,
     SS_ED448 = 0x0808,
 
     /* RSASSA-PSS algorithms with public key OID RSASSA-PSS */
@@ -109,11 +164,39 @@ enum SignatureSchemes {
     //(0xFFFF)
 };
 
+/*
+firefox supports the following:
+0x11ec = X25519_ML-KEM-768 post quantum secured key exchange
+0x001d = NG_X25519
+0x0017 = NG_SECP256R1
+0x0018 = NG_SECP384R1
+0x0019 = NG_SECP512R1
+0x0100 = NG_FFDHE2048
+0x0101 = NG_FFDHE3072
+
+chromium supports the following:
+0xeaea = literally a random number to test that tls servers correctly ignore these fields
+0x11ec = X25519_ML-KEM-768
+0x001d = NG_X25519
+0x0017 = NG_SECP256R1
+0x0018 = NG_SECP384R1
+
+curl supports the following:
+0x11ec = X25519_ML-KEM-768
+0x001d = NG_X25519
+0x0017 = NG_SECP256R1
+0x001e = NG_X448
+0x0018 = NG_SECP384R1
+0x0019 = NG_SECP512R1
+0x0100 = NG_FFDHE2048
+0x0101 = NG_FFDHE3072
+*/
+
 enum NamedGroups { // key share, ushort
     NG_SECP256R1 = 0x0017,// will try to implement these
     NG_SECP384R1 = 0x0018,// will try to implement these
     NG_SECP512R1 = 0x0019,// will try to implement these
-    NG_X25519 = 0x001d,   // only one going to be implemented
+    NG_X25519 = 0x001d,
     NG_X448 = 0x001e,
     
     NG_FFDHE2048 = 0x0100,

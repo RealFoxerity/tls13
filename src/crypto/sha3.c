@@ -189,7 +189,6 @@ static void string_to_state(char state_out[KECCAK_STATE_WIDTH][KECCAK_STATE_HEIG
 }
 
 static void state_to_string(char state_array[KECCAK_STATE_WIDTH][KECCAK_STATE_HEIGHT][SHA3_W], char * string_out) {
-    int bit_counter = 0;
     memset(string_out, 0, 200);
 
     for (int x = 0; x < KECCAK_STATE_WIDTH; x++) {
@@ -261,7 +260,7 @@ static void keccak_sponge_sha3(const unsigned char * string, int string_len, int
 
     int n = string_len / r;
 
-    int c = SHA3_B/8 - r;
+    //int c = SHA3_B/8 - r;
 
     char s[SHA3_B/8];
     char s2[SHA3_B/8];
