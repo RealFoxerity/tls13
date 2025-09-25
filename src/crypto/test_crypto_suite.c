@@ -160,7 +160,7 @@ int main() {
 
     uint8_t gcm_test_aead_tag[GCM_BLOCK_SIZE] = {0};
     uint8_t * ciphertext_gcm;
-    /*
+
     printf("Testing AES-128-GCM AEAD Authenticated Encryption - test case 1\n");
     uint8_t gcm_test_1_k[AES_128_KEY_LEN] = {0};
     const uint8_t gcm_test_1_aead_expected[] = "\x58\xe2\xfc\xce\xfa\x7e\x30\x61\x36\x7f\x1d\x57\xa4\xe7\x45\x5a";
@@ -197,7 +197,7 @@ int main() {
     }
     free(ciphertext_gcm);
     printf("AES-128-GCM AEAD Authenticated Encryption - test case 2 - passed\n");
-    */
+    
     printf("Testing AES-128-GCM AEAD Authenticated Encryption - test case 3\n");
     uint8_t gcm_test_3_k[AES_128_KEY_LEN] = "\xfe\xff\xe9\x92\x86\x65\x73\x1c\x6d\x6a\x8f\x94\x67\x30\x83\x08";
     uint8_t gcm_test_3_p[] = 
@@ -205,8 +205,12 @@ int main() {
 \x86\xa7\xa9\x53\x15\x34\xf7\xda\x2e\x4c\x30\x3d\x8a\x31\x8a\x72\
 \x1c\x3c\x0c\x95\x95\x68\x09\x53\x2f\xcf\x0e\x24\x49\xa6\xb5\x25\
 \xb1\x6a\xed\xf5\xaa\x0d\xe6\x57\xba\x63\x7b\x39\x1a\xaf\xd2\x55";
-    const uint8_t gcm_test_3_aead_expected[] = "\xab\x6e\x47\xd4\x2c\xec\x13\xbd\xf5\x3a\x67\xb2\x12\x57\xbd\xdf";
-    const uint8_t gcm_test_3_ciphertext_expected[] = "\x03\x88\xda\xce\x60\xb6\xa3\x92\xf3\x28\xc2\xb9\x71\xb2\xfe\x78";
+    const uint8_t gcm_test_3_aead_expected[] = "\x4d\x5c\x2a\xf3\x27\xcd\x64\xa6\x2c\xf3\x5a\xbd\x2b\xa6\xfa\xb4";
+    const uint8_t gcm_test_3_ciphertext_expected[] = 
+"\x42\x83\x1e\xc2\x21\x77\x74\x24\x4b\x72\x21\xb7\x84\xd0\xd4\x9c\
+\xe3\xaa\x21\x2f\x2c\x02\xa4\xe0\x35\xc1\x7e\x23\x29\xac\xa1\x2e\
+\x21\xd5\x14\xb2\x54\x66\x93\x1c\x7d\x8f\x6a\x5a\xac\x84\xaa\x05\
+\x1b\xa3\x0b\x39\x6a\x0a\xac\x97\x3d\x58\xe0\x91\x47\x3f\x59\x85";
     memset(gcm_test_aead_tag, 0, GCM_BLOCK_SIZE);
     uint8_t gcm_test_3_iv[] = "\xca\xfe\xba\xbe\xfa\xce\xdb\xad\xde\xca\xf8\x88";
     ciphertext_gcm = aes_128_gcm_enc(
@@ -219,7 +223,7 @@ int main() {
         if (gcm_test_aead_tag[i] != gcm_test_3_aead_expected[i]) {
             printf("Test 3 authenticated encrypt failed on byte %d - AEAD tag incorrect!\n", i);
             break;
-            //exit(1);
+            exit(1);
         }
     }
     for (int i = 0; i < sizeof(gcm_test_3_ciphertext_expected) - 1; i++) {
@@ -231,5 +235,45 @@ int main() {
     free(ciphertext_gcm);
     printf("AES-128-GCM AEAD Authenticated Encryption - test case 3 - passed\n");
 
+    printf("Testing AES-128-GCM AEAD Authenticated Encryption - test case 6\n");
+    uint8_t gcm_test_6_k[AES_128_KEY_LEN] = "\xfe\xff\xe9\x92\x86\x65\x73\x1c\x6d\x6a\x8f\x94\x67\x30\x83\x08";
+    uint8_t gcm_test_6_p[] = 
+"\xd9\x31\x32\x25\xf8\x84\x06\xe5\xa5\x59\x09\xc5\xaf\xf5\x26\x9a\
+\x86\xa7\xa9\x53\x15\x34\xf7\xda\x2e\x4c\x30\x3d\x8a\x31\x8a\x72\
+\x1c\x3c\x0c\x95\x95\x68\x09\x53\x2f\xcf\x0e\x24\x49\xa6\xb5\x25\
+\xb1\x6a\xed\xf5\xaa\x0d\xe6\x57\xba\x63\x7b\x39";
+    const uint8_t gcm_test_6_aad[] = "\xfe\xed\xfa\xce\xde\xad\xbe\xef\xfe\xed\xfa\xce\xde\xad\xbe\xef\xab\xad\xda\xd2";
+    const uint8_t gcm_test_6_aead_expected[] = "\x61\x9c\xc5\xae\xff\xfe\x0b\xfa\x46\x2a\xf4\x3c\x16\x99\xd0\x50";
+    const uint8_t gcm_test_6_ciphertext_expected[] = 
+"\x8c\xe2\x49\x98\x62\x56\x15\xb6\x03\xa0\x33\xac\xa1\x3f\xb8\x94\
+\xbe\x91\x12\xa5\xc3\xa2\x11\xa8\xba\x26\x2a\x3c\xca\x7e\x2c\xa7\
+\x01\xe4\xa9\xa4\xfb\xa4\x3c\x90\xcc\xdc\xb2\x81\xd4\x8c\x7c\x6f\
+\xd6\x28\x75\xd2\xac\xa4\x17\x03\x4c\x34\xae\xe5";
+    memset(gcm_test_aead_tag, 0, GCM_BLOCK_SIZE);
+    uint8_t gcm_test_6_iv[] = 
+"\x93\x13\x22\x5d\xf8\x84\x06\xe5\x55\x90\x9c\x5a\xff\x52\x69\xaa\
+\x6a\x7a\x95\x38\x53\x4f\x7d\xa1\xe4\xc3\x03\xd2\xa3\x18\xa7\x28\
+\xc3\xc0\xc9\x51\x56\x80\x95\x39\xfc\xf0\xe2\x42\x9a\x6b\x52\x54\
+\x16\xae\xdb\xf5\xa0\xde\x6a\x57\xa6\x37\xb3\x9b";
+    ciphertext_gcm = aes_128_gcm_enc(
+        gcm_test_6_p, sizeof(gcm_test_6_p)-1, 
+        gcm_test_6_aad, sizeof(gcm_test_6_aad)-1, 
+        gcm_test_6_iv, sizeof(gcm_test_6_iv)-1,
+        gcm_test_aead_tag, gcm_test_6_k);
+
+    for (int i = 0; i < sizeof(gcm_test_6_aead_expected) - 1; i++) {
+        if (gcm_test_aead_tag[i] != gcm_test_6_aead_expected[i]) {
+            printf("Test 6 authenticated encrypt failed on byte %d - AEAD tag incorrect!\n", i);
+            exit(1);
+        }
+    }
+    for (int i = 0; i < sizeof(gcm_test_6_ciphertext_expected) - 1; i++) {
+        if (ciphertext_gcm[i] != gcm_test_6_ciphertext_expected[i]) {
+            printf("Test 6 authenticated encrypt failed on byte %d - Ciphertext incorrect!\n", i);
+            exit(1);
+        }
+    }
+    free(ciphertext_gcm);
+    printf("AES-128-GCM AEAD Authenticated Encryption - test case 6 - passed\n");
     return 0;
 }

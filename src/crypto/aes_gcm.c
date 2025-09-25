@@ -193,9 +193,9 @@ static uint8_t * aes_gcm_authenticate_encryption_internal( // returns ciphertext
 
         memcpy(padded_iv, IV, IV_len);
 
-        *(uint64_t*)&padded_iv[IV_len + padding_bytes + sizeof(uint64_t)] = htobe64(IV_len);
+        *(uint64_t*)&padded_iv[IV_len + padding_bytes + sizeof(uint64_t)] = htobe64(IV_len*8); // BITS
 
-        uint128_t pcb_temp = gcm_ghash(bytes_to_uint128(subkey), padded_iv, IV_len/GCM_BLOCK_SIZE + (IV_len%GCM_BLOCK_SIZE != 0?1:0) + 1);
+        uint128_t pcb_temp = gcm_ghash(bytes_to_uint128(subkey), padded_iv, (IV_len + padding_bytes + GCM_BLOCK_SIZE)/GCM_BLOCK_SIZE);
         free(padded_iv);
         uint128_to_bytes(pcb_temp, pre_counter_block);
     }
