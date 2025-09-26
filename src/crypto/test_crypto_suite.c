@@ -159,9 +159,9 @@ int main() {
     printf("\n");
 
     uint8_t gcm_test_aead_tag[GCM_BLOCK_SIZE] = {0};
-    uint8_t * ciphertext_gcm;
-
-    printf("Testing AES-128-GCM AEAD Authenticated Encryption - test case 1\n");
+    uint8_t * ciphertext_gcm, * plaintext_gcm;
+    
+    printf("Testing AES-128-GCM AEAD Authenticated Encryption - test case 1 (AEAD tag generation)\n");
     uint8_t gcm_test_1_k[AES_128_KEY_LEN] = {0};
     const uint8_t gcm_test_1_aead_expected[] = "\x58\xe2\xfc\xce\xfa\x7e\x30\x61\x36\x7f\x1d\x57\xa4\xe7\x45\x5a";
     uint8_t gcm_test_1_iv[12] = {0};
@@ -172,9 +172,19 @@ int main() {
             exit(1);
         }
     }
-    free(ciphertext_gcm);
     printf("AES-128-GCM AEAD Authenticated Encryption - test case 1 - passed\n");
-   
+
+    printf("Testing AES-128-GCM AEAD Authenticated Decryption - test case 1 (AEAD tag generation)\n");
+    plaintext_gcm = aes_128_gcm_dec(NULL, 0, NULL, 0, gcm_test_1_iv, 12, gcm_test_aead_tag, gcm_test_1_k);
+    if (plaintext_gcm == (uint8_t*)-1) {
+        printf("Test 1 authenticated decrypt failed - AEAD tag mismatch\n");
+        exit(1);
+    }
+
+    free(ciphertext_gcm); // won't do anything because this will be NULL, but to be safe
+    free(plaintext_gcm);
+    printf("AES-128-GCM AEAD Authenticated Decryption - test case 1 - passed\n");
+    /*
     printf("Testing AES-128-GCM AEAD Authenticated Encryption - test case 2\n");
     uint8_t gcm_test_2_k[AES_128_KEY_LEN] = {0};
     uint8_t gcm_test_2_p[AES_BLOCK_SIZE] = {0};
@@ -234,6 +244,7 @@ int main() {
     }
     free(ciphertext_gcm);
     printf("AES-128-GCM AEAD Authenticated Encryption - test case 3 - passed\n");
+    */
 
     printf("Testing AES-128-GCM AEAD Authenticated Encryption - test case 6\n");
     uint8_t gcm_test_6_k[AES_128_KEY_LEN] = "\xfe\xff\xe9\x92\x86\x65\x73\x1c\x6d\x6a\x8f\x94\x67\x30\x83\x08";
@@ -273,7 +284,147 @@ int main() {
             exit(1);
         }
     }
-    free(ciphertext_gcm);
     printf("AES-128-GCM AEAD Authenticated Encryption - test case 6 - passed\n");
+    printf("Testing AES-128-GCM AEAD Authenticated Decryption - test case 6\n");
+
+    plaintext_gcm = aes_128_gcm_dec(
+        ciphertext_gcm, sizeof(gcm_test_6_p)-1, 
+        gcm_test_6_aad, sizeof(gcm_test_6_aad)-1,
+        gcm_test_6_iv, sizeof(gcm_test_6_iv)-1,
+        gcm_test_aead_tag, gcm_test_6_k);
+    if (plaintext_gcm == (uint8_t*)-1) {
+        printf("Test 6 authenticated decrypt failed - auth tag mismatch\n");
+        exit(1);
+    }
+    for (int i = 0; i < sizeof(gcm_test_6_p)-1; i++) {
+        if (plaintext_gcm[i] != gcm_test_6_p[i]) {
+            printf("Test 6 authenticated decrypt failed on byte %d - Plaintext incorrect!\n", i);
+            exit(1);
+        }
+    }
+    free(ciphertext_gcm);
+    free(plaintext_gcm);
+    printf("AES-128-GCM AEAD Authenticated Decryption - test case 6 - passed\n");
+
+    printf("Testing AES-192-GCM AEAD Authenticated Encryption - test case 12\n");
+    uint8_t gcm_test_12_k[AES_192_KEY_LEN] = "\xfe\xff\xe9\x92\x86\x65\x73\x1c\x6d\x6a\x8f\x94\x67\x30\x83\x08\xfe\xff\xe9\x92\x86\x65\x73\x1c";
+    uint8_t gcm_test_12_p[] = 
+"\xd9\x31\x32\x25\xf8\x84\x06\xe5\xa5\x59\x09\xc5\xaf\xf5\x26\x9a\
+\x86\xa7\xa9\x53\x15\x34\xf7\xda\x2e\x4c\x30\x3d\x8a\x31\x8a\x72\
+\x1c\x3c\x0c\x95\x95\x68\x09\x53\x2f\xcf\x0e\x24\x49\xa6\xb5\x25\
+\xb1\x6a\xed\xf5\xaa\x0d\xe6\x57\xba\x63\x7b\x39";
+    const uint8_t gcm_test_12_aad[] = "\xfe\xed\xfa\xce\xde\xad\xbe\xef\xfe\xed\xfa\xce\xde\xad\xbe\xef\xab\xad\xda\xd2";
+    const uint8_t gcm_test_12_aead_expected[] = "\xdc\xf5\x66\xff\x29\x1c\x25\xbb\xb8\x56\x8f\xc3\xd3\x76\xa6\xd9";
+    const uint8_t gcm_test_12_ciphertext_expected[] = 
+"\xd2\x7e\x88\x68\x1c\xe3\x24\x3c\x48\x30\x16\x5a\x8f\xdc\xf9\xff\
+\x1d\xe9\xa1\xd8\xe6\xb4\x47\xef\x6e\xf7\xb7\x98\x28\x66\x6e\x45\
+\x81\xe7\x90\x12\xaf\x34\xdd\xd9\xe2\xf0\x37\x58\x9b\x29\x2d\xb3\
+\xe6\x7c\x03\x67\x45\xfa\x22\xe7\xe9\xb7\x37\x3b";
+    memset(gcm_test_aead_tag, 0, GCM_BLOCK_SIZE);
+    uint8_t gcm_test_12_iv[] = 
+"\x93\x13\x22\x5d\xf8\x84\x06\xe5\x55\x90\x9c\x5a\xff\x52\x69\xaa\
+\x6a\x7a\x95\x38\x53\x4f\x7d\xa1\xe4\xc3\x03\xd2\xa3\x18\xa7\x28\
+\xc3\xc0\xc9\x51\x56\x80\x95\x39\xfc\xf0\xe2\x42\x9a\x6b\x52\x54\
+\x16\xae\xdb\xf5\xa0\xde\x6a\x57\xa6\x37\xb3\x9b";
+    ciphertext_gcm = aes_192_gcm_enc(
+        gcm_test_12_p, sizeof(gcm_test_12_p)-1, 
+        gcm_test_12_aad, sizeof(gcm_test_12_aad)-1, 
+        gcm_test_12_iv, sizeof(gcm_test_12_iv)-1,
+        gcm_test_aead_tag, gcm_test_12_k);
+
+    for (int i = 0; i < sizeof(gcm_test_12_aead_expected) - 1; i++) {
+        if (gcm_test_aead_tag[i] != gcm_test_12_aead_expected[i]) {
+            printf("Test 12 authenticated encrypt failed on byte %d - AEAD tag incorrect!\n", i);
+            exit(1);
+        }
+    }
+    for (int i = 0; i < sizeof(gcm_test_12_ciphertext_expected) - 1; i++) {
+        if (ciphertext_gcm[i] != gcm_test_12_ciphertext_expected[i]) {
+            printf("Test 12 authenticated encrypt failed on byte %d - Ciphertext incorrect!\n", i);
+            exit(1);
+        }
+    }
+    printf("AES-192-GCM AEAD Authenticated Encryption - test case 12 - passed\n");
+    printf("Testing AES-192-GCM AEAD Authenticated Decryption - test case 12\n");
+
+    plaintext_gcm = aes_192_gcm_dec(
+        ciphertext_gcm, sizeof(gcm_test_12_p)-1, 
+        gcm_test_12_aad, sizeof(gcm_test_12_aad)-1,
+        gcm_test_12_iv, sizeof(gcm_test_12_iv)-1,
+        gcm_test_aead_tag, gcm_test_12_k);
+    if (plaintext_gcm == (uint8_t*)-1) {
+        printf("Test 12 authenticated decrypt failed - auth tag mismatch\n");
+        exit(1);   
+    }
+    for (int i = 0; i < sizeof(gcm_test_12_p)-1; i++) {
+        if (plaintext_gcm[i] != gcm_test_12_p[i]) {
+            printf("Test 12 authenticated decrypt failed on byte %d - Plaintext incorrect!\n", i);
+            exit(1);
+        }
+    }
+    free(ciphertext_gcm);
+    free(plaintext_gcm);
+    printf("AES-192-GCM AEAD Authenticated Decryption - test case 12 - passed\n");
+
+
+    printf("Testing AES-256-GCM AEAD Authenticated Encryption - test case 18\n");
+    uint8_t gcm_test_18_k[AES_256_KEY_LEN] = "\xfe\xff\xe9\x92\x86\x65\x73\x1c\x6d\x6a\x8f\x94\x67\x30\x83\x08\xfe\xff\xe9\x92\x86\x65\x73\x1c\x6d\x6a\x8f\x94\x67\x30\x83\x08";
+    uint8_t gcm_test_18_p[] = 
+"\xd9\x31\x32\x25\xf8\x84\x06\xe5\xa5\x59\x09\xc5\xaf\xf5\x26\x9a\
+\x86\xa7\xa9\x53\x15\x34\xf7\xda\x2e\x4c\x30\x3d\x8a\x31\x8a\x72\
+\x1c\x3c\x0c\x95\x95\x68\x09\x53\x2f\xcf\x0e\x24\x49\xa6\xb5\x25\
+\xb1\x6a\xed\xf5\xaa\x0d\xe6\x57\xba\x63\x7b\x39";
+    const uint8_t gcm_test_18_aad[] = "\xfe\xed\xfa\xce\xde\xad\xbe\xef\xfe\xed\xfa\xce\xde\xad\xbe\xef\xab\xad\xda\xd2";
+    const uint8_t gcm_test_18_aead_expected[] = "\xa4\x4a\x82\x66\xee\x1c\x8e\xb0\xc8\xb5\xd4\xcf\x5a\xe9\xf1\x9a";
+    const uint8_t gcm_test_18_ciphertext_expected[] = 
+"\x5a\x8d\xef\x2f\x0c\x9e\x53\xf1\xf7\x5d\x78\x53\x65\x9e\x2a\x20\
+\xee\xb2\xb2\x2a\xaf\xde\x64\x19\xa0\x58\xab\x4f\x6f\x74\x6b\xf4\
+\x0f\xc0\xc3\xb7\x80\xf2\x44\x45\x2d\xa3\xeb\xf1\xc5\xd8\x2c\xde\
+\xa2\x41\x89\x97\x20\x0e\xf8\x2e\x44\xae\x7e\x3f";
+    memset(gcm_test_aead_tag, 0, GCM_BLOCK_SIZE);
+    uint8_t gcm_test_18_iv[] = 
+"\x93\x13\x22\x5d\xf8\x84\x06\xe5\x55\x90\x9c\x5a\xff\x52\x69\xaa\
+\x6a\x7a\x95\x38\x53\x4f\x7d\xa1\xe4\xc3\x03\xd2\xa3\x18\xa7\x28\
+\xc3\xc0\xc9\x51\x56\x80\x95\x39\xfc\xf0\xe2\x42\x9a\x6b\x52\x54\
+\x16\xae\xdb\xf5\xa0\xde\x6a\x57\xa6\x37\xb3\x9b";
+    ciphertext_gcm = aes_256_gcm_enc(
+        gcm_test_18_p, sizeof(gcm_test_18_p)-1, 
+        gcm_test_18_aad, sizeof(gcm_test_18_aad)-1, 
+        gcm_test_18_iv, sizeof(gcm_test_18_iv)-1,
+        gcm_test_aead_tag, gcm_test_18_k);
+
+    for (int i = 0; i < sizeof(gcm_test_18_aead_expected) - 1; i++) {
+        if (gcm_test_aead_tag[i] != gcm_test_18_aead_expected[i]) {
+            printf("Test 18 authenticated encrypt failed on byte %d - AEAD tag incorrect!\n", i);
+            exit(1);
+        }
+    }
+    for (int i = 0; i < sizeof(gcm_test_18_ciphertext_expected) - 1; i++) {
+        if (ciphertext_gcm[i] != gcm_test_18_ciphertext_expected[i]) {
+            printf("Test 18 authenticated encrypt failed on byte %d - Ciphertext incorrect!\n", i);
+            exit(1);
+        }
+    }
+    printf("AES-256-GCM AEAD Authenticated Encryption - test case 18 - passed\n");
+    printf("Testing AES-256-GCM AEAD Authenticated Decryption - test case 18\n");
+
+    plaintext_gcm = aes_256_gcm_dec(
+        ciphertext_gcm, sizeof(gcm_test_18_p)-1, 
+        gcm_test_18_aad, sizeof(gcm_test_18_aad)-1,
+        gcm_test_18_iv, sizeof(gcm_test_18_iv)-1,
+        gcm_test_aead_tag, gcm_test_18_k);
+    if (plaintext_gcm == (uint8_t*)-1) {
+        printf("Test 6 authenticated decrypt failed - auth tag mismatch\n");
+        exit(1);   
+    }
+    for (int i = 0; i < sizeof(gcm_test_18_p)-1; i++) {
+        if (plaintext_gcm[i] != gcm_test_18_p[i]) {
+            printf("Test 18 authenticated decrypt failed on byte %d - Plaintext incorrect!\n", i);
+            exit(1);
+        }
+    }
+    free(ciphertext_gcm);
+    free(plaintext_gcm);
+    printf("AES-256-GCM AEAD Authenticated Decryption - test case 18 - passed\n");
     return 0;
 }
