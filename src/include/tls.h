@@ -130,6 +130,7 @@ curl supports the following: (literally everything and then some)
 
 so I decided to instead of ed25519 (the original idea) to implement SS_ECDSA_SECPXXXR1_SHAXXX
 */
+#define ESDSA_UNCOMPRESSED_POINT_FORMAT 0x04
 enum SignatureSchemes {
     /* RSASSA-PKCS1-v1_5 algorithms */
     SS_RSA_PKCS1_SHA256 = 0x0401,
@@ -137,7 +138,10 @@ enum SignatureSchemes {
     SS_RSA_PKCS1_SHA512 = 0x0601,
 
     /* ECDSA algorithms */
-    SS_ECDSA_SECP256R1_SHA256 = 0x0403,
+    // note: this is the uncompressed format indicated by 0x04 at the start of the public key, otherwise 0x0C
+    //  client announces support for compressed formats using the ECPointFormatList extension, 
+    //  but tls1.3 removed support for anything other than uncompressed format, so not implementing it
+    SS_ECDSA_SECP256R1_SHA256 = 0x0403, // will be implementing this
     SS_ECDSA_SECP384R1_SHA384 = 0x0503,
     SS_ECDSA_SECP521R1_SHA512 = 0x0603,
 
@@ -193,9 +197,9 @@ curl supports the following:
 */
 
 enum NamedGroups { // key share, ushort
-    NG_SECP256R1 = 0x0017,// will try to implement these
+    NG_SECP256R1 = 0x0017,// will try to implement these, currently this, also uncompressed format
     NG_SECP384R1 = 0x0018,// will try to implement these
-    NG_SECP512R1 = 0x0019,// will try to implement these
+    NG_SECP521R1 = 0x0019,// will try to implement these
     NG_X25519 = 0x001d,
     NG_X448 = 0x001e,
     

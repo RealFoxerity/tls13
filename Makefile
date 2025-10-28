@@ -1,6 +1,6 @@
 CC=gcc
 CFLAGS=-O0 -Og -g -Wall
-LDFLAGS=
+LDFLAGS=-lgmp
 OBJS=$(shell find . -name '*.c' | grep -v test | sed 's/\.c$$/.o/g')
 CRYPTO_OBJS=$(shell find src/crypto -name '*.c')
 #src/crypto/*.o: CFLAGS+=-O3
