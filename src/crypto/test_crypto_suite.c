@@ -39,6 +39,7 @@ const unsigned char * aes_ciphertext[] = {
 
 int main() {
     unsigned char hash[max(SHA3_512_HASH_BYTES, SHA512_HASH_BYTES)];
+    sha2_ctx_t context;
 
     memset(hash, 0, SHA3_224_HASH_BYTES);
     sha3_224_sum(hash, (unsigned char *)"HelloTLS", 8);
@@ -83,7 +84,9 @@ int main() {
     printf("\nE: %s\n", sha2_expected[0]);
 
     memset(hash, 0, SHA224_HASH_BYTES);
-    sha224_sum(hash, (unsigned char *)"HelloTLS", 8);
+    sha224_init(&context);
+    sha224_update(&context, (unsigned char*)"HelloTLS", 8);
+    sha224_finalize(&context, hash);
     printf("sha224 hash of 'HelloTLS', expected:\nS: ");
     for (int j = 0; j < SHA224_HASH_BYTES; j++) {
         printf("%02hhx", hash[j]);
@@ -91,7 +94,10 @@ int main() {
     printf("\nE: %s\n", sha2_expected[1]);
 
     memset(hash, 0, SHA256_HASH_BYTES);
-    sha256_sum(hash, (unsigned char *)"HelloTLS", 8);
+
+    sha256_init(&context);
+    sha256_update(&context, (unsigned char*)"HelloTLS", 8);
+    sha256_finalize(&context, hash);
     printf("sha256 hash of 'HelloTLS', expected:\nS: ");
     for (int j = 0; j < SHA256_HASH_BYTES; j++) {
         printf("%02hhx", hash[j]);

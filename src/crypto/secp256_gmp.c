@@ -85,8 +85,8 @@ static inline elpoint get_point_from_pubkey(const unsigned char * public_key) {
     return out;
 }
 
-unsigned char * secp256_get_shared_key(const unsigned char * private_key, const unsigned char * bob_public_key) {
-    // note: rfc 8446 (TLS) 7.4.2 (about ECDHE) requires only the X coordinate of the shared key (for use in ECKAS-DH1)
+unsigned char * secp256_get_shared_key(const unsigned char * private_key, const unsigned char * bob_public_key) { // ECSVDP-DH for DL/ECKAS-DH1 see IEEE 1363-2000 page 29-30 and 47-48 respectively
+    // note: rfc 8446 (TLS) 7.4.2 (about ECDHE) requires only the X coordinate of the shared key
 
     elpoint pubkey_point;
     mpz_t prime, a;
