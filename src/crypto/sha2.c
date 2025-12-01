@@ -230,6 +230,7 @@ void sha2_pad_block(sha2_ctx_t * ctx, int block_size_bits, void * iv) {
             sha512_update_internal(ctx, pad_data, pad_size, iv);
             break;
     }
+    free(pad_data);
 }
 
 void sha256_init_internal(sha2_ctx_t * ctx, const uint32_t * iv) {
