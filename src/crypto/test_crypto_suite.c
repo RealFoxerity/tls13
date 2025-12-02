@@ -4,6 +4,7 @@
 #include "../include/crypto/sha3.h"
 #include "../include/crypto/sha2.h"
 #include "../include/crypto/aes.h"
+#include "../include/crypto/hmac.h"
 #include <assert.h>
 #include <string.h>
 
@@ -432,5 +433,13 @@ int main() {
     free(ciphertext_gcm);
     free(plaintext_gcm);
     printf("AES-256-GCM AEAD Authenticated Decryption - test case 18 - passed\n");
+    printf("\n\n");
+
+    printf("HMAC SHA-256 test, string \"Hello\", key \"TLS\", no null bytes, expected:\nHMAC: ");
+    unsigned char * code = hmac(HMAC_SHA2_256, (unsigned char *)"TLS", 3, (unsigned char *)"Hello", 5);
+    for (int i = 0; i < SHA256_HASH_BYTES; i++) {
+        printf("%02hhx", code[i]);
+    }
+    printf("\nE:    1090f043a91a1b50054e75d54fcb5e1a5309cb77a0bafa2669cbf9c75fa810fe\n");
     return 0;
 }
