@@ -173,7 +173,7 @@ static void aes_prepare(uint8_t * subkey, const uint8_t * key, size_t key_len, c
             exit(-1);
     }
 
-    if (IV_len == 96/8) { // see page 15(23)
+    if (IV_len == AES_GCM_DEFAULT_IV_LEN) { // see page 15(23)
         memcpy(pre_counter_block, IV, IV_len);
         pre_counter_block[GCM_BLOCK_SIZE - 1] |= 1;
     } else {

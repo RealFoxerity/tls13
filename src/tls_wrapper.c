@@ -1,4 +1,5 @@
 #include <stddef.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h> // malloc, free
 #include <assert.h>
@@ -13,6 +14,7 @@
 
 #include <unistd.h> // close, access
 
+#include "include/crypto/aes.h"
 #include "include/crypto/hmac.h"
 #include "include/server.h"
 #include "include/tls.h"
@@ -38,7 +40,8 @@ struct KeyShareNode server_key_share = {0}; // this and server_ecdhe_keys share 
 Keys server_ecdhe_keys = {0}; // private & public keys, get type from client/server_key_share
 
 struct prk early_secret, handshake_secret, master_secret;
-Vector master_key = {0}, server_hs_traffic_secret = {0}, client_hs_traffic_secret = {0}, server_hs_iv = {0}, client_hs_iv = {0};
+Vector master_key = {0}, server_hs_traffic_secret = {0}, client_hs_traffic_secret = {0};
+Vector server_write_key = {0}, server_write_iv = {0}, client_write_key = {0}, client_write_iv = {0};
 Vector server_application_secret_0 = {0}, server_application_iv = {0}, client_application_secret_0 = {0}, client_application_iv = {0};
 
 sha2_ctx_t transcript_hash_ctx;
@@ -54,8 +57,7 @@ unsigned char random_crypto[32] = {0};
 
 unsigned char * tls_packet_buffer = NULL;
 
-unsigned long message_counter = 0;
-
+uint64_t recv_message_counter = 0, txd_message_counter = 0;
 enum tls_state current_state = TS_SETTING_UP_INTERACTIVE;
 
 void free_tls_metadata() {
@@ -65,18 +67,18 @@ void free_tls_metadata() {
 }
 
 int decrypt_tls(unsigned char* buffer, size_t len);
-
+int encrypt_tls_packet(unsigned char original_packet_type, unsigned char * restrict out_buf, size_t out_buf_len, const unsigned char * restrict input_buf, size_t in_buf_len);
 void construct_alert(unsigned char alert_desc, unsigned char alert_level, unsigned char* buffer, size_t bufsiz) {
-    assert(bufsiz >= sizeof(TLS_plainttext_header)+sizeof(struct Alert));
+    assert(bufsiz >= sizeof(TLS_record_header)+sizeof(struct Alert));
     memset(buffer, 0, bufsiz);
-    ((TLS_plainttext_header*)buffer)->content_type = CT_ALERT;
-    ((TLS_plainttext_header*)buffer)->legacy_record_version = htons(TLS11_COMPAT_VERSION);
-    ((TLS_plainttext_header*)buffer)->length = htons(2);
-    ((struct Alert*)(buffer+sizeof(TLS_plainttext_header)))->alert_level = alert_level;
-    ((struct Alert*)(buffer+sizeof(TLS_plainttext_header)))->alert_description = alert_desc;
+    ((TLS_record_header*)buffer)->content_type = CT_ALERT;
+    ((TLS_record_header*)buffer)->legacy_record_version = htons(TLS11_COMPAT_VERSION);
+    ((TLS_record_header*)buffer)->length = htons(2);
+    ((struct Alert*)(buffer+sizeof(TLS_record_header)))->alert_level = alert_level;
+    ((struct Alert*)(buffer+sizeof(TLS_record_header)))->alert_description = alert_desc;
 }
 
-void construct_encrypted_extensions(unsigned char * buffer, size_t len);
+int construct_encrypted_extensions(unsigned char * buffer, size_t len);
 
 char ssl_wrapper(int socket_fd) {
     int socks[2];
@@ -110,8 +112,8 @@ char ssl_wrapper(int socket_fd) {
     current_state = TS_SETTING_UP_INTERACTIVE;
 
     while (select(MAX(socket_fd, inner_fd)+1, &set, NULL, NULL, NULL) != -1) {
-        message_counter++;
         if (FD_ISSET(socket_fd, &set)) { // client sending a message
+            recv_message_counter ++;
             FD_SET(inner_fd, &set);
             recv_len = recv(socket_fd, tls_packet_buffer, MAX_REQUEST_SIZE, 0);
             
@@ -119,27 +121,37 @@ char ssl_wrapper(int socket_fd) {
                 free_tls_metadata();
                 return EXIT_FAILURE;
             } else if (ret < 0) {
+                alert:
                 construct_alert(-ret, AL_FATAL, tls_packet_buffer, MAX_REQUEST_SIZE);
-                send(socket_fd, tls_packet_buffer, sizeof(TLS_plainttext_header)+sizeof(struct Alert), 0); // alert messages are always 7 bytes long
+                send(socket_fd, tls_packet_buffer, sizeof(TLS_record_header)+sizeof(struct Alert), 0); // alert messages are always 7 bytes long
                 free_tls_metadata();
                 return (EXIT_FAILURE);
-            }
-            else {
+            } else {
                 switch (current_state) {
                     case TS_READY:
+                        txd_message_counter ++;
                         send(inner_fd, tls_packet_buffer, ret, 0);
                         break;
                     case TS_SETTING_UP_INTERACTIVE: // during back and forth between client and server (client hello -> server hello...)
+                        txd_message_counter ++;
                         send(socket_fd, tls_packet_buffer, ret, 0);
                         break;
                     case TS_SETTING_UP_SERVER_SIDE: // sending the actual server hello, change cipher spec, wrapped records, encrypted extensions
+                        txd_message_counter ++;
                         send(socket_fd, tls_packet_buffer, ret, 0);
+                        ret = construct_encrypted_extensions(tls_packet_buffer, MAX_REQUEST_SIZE);
+                        if (ret < 0) goto alert;
+                        txd_message_counter ++;
+                        send(socket_fd, tls_packet_buffer, ret, 0);
+                        // certificate
+                        // certificate verify
                     default:
                         break;
                 }
             }
         
         } else { // server sending a message
+            txd_message_counter ++;
             FD_SET(socket_fd, &set);
             recv_len = recv(inner_fd, tls_packet_buffer, MAX_REQUEST_SIZE, 0);
             //encrypt_tls(buffer, recv_len);
@@ -384,6 +396,57 @@ static int generate_server_keys() {
     return 0;
 }
 
+static void generate_traffic_keys(Vector client_secret, Vector server_secret) {
+    // https://www.rfc-editor.org/rfc/rfc8446#section-7.3
+    enum hmac_supported_hashes hash_type;
+    size_t key_len, iv_len;
+    switch (chosen_cipher_suite) {
+        case TLS_AES_128_GCM_SHA256:
+            hash_type = HMAC_SHA2_256;
+            key_len = AES_128_KEY_LEN;
+            iv_len = AES_GCM_DEFAULT_IV_LEN;
+            break;
+        case TLS_AES_256_GCM_SHA384:
+            hash_type = HMAC_SHA2_384;
+            key_len = AES_256_KEY_LEN;
+            iv_len = AES_GCM_DEFAULT_IV_LEN;
+            break;
+        default:
+            fprintf(stderr, "Chosen unsupported cipher suite (how did we get here?)\n");
+            exit(-AD_HANDSHAKE_FAILURE);
+    }
+    struct prk cs = (struct prk) {
+        .prk = client_secret.data,
+        .prk_len = client_secret.len
+    };
+
+    struct prk ss = (struct prk) {
+        .prk = server_secret.data,
+        .prk_len = server_secret.len
+    };
+
+    free(client_write_iv.data);
+    free(client_write_key.data);
+
+    free(server_write_iv.data);
+    free(server_write_key.data);
+
+    client_write_key.data = hkdf_expand_label(hash_type, cs, (unsigned char *)"key", 3, NULL, 0, key_len);
+    client_write_key.len = key_len;
+    
+    client_write_iv.data = hkdf_expand_label(hash_type, cs, (unsigned char *)"iv", 2, NULL, 0, iv_len);
+    client_write_iv.len = iv_len;
+
+
+    server_write_key.data = hkdf_expand_label(hash_type, ss, (unsigned char *)"key", 3, NULL, 0, key_len);
+    server_write_key.len = key_len;
+    
+    server_write_iv.data = hkdf_expand_label(hash_type, ss, (unsigned char *)"iv", 2, NULL, 0, iv_len);
+    server_write_iv.len = iv_len;
+
+    recv_message_counter = txd_message_counter = 0;
+}
+
 // TODO: if/when implementing PSK change first HKDF-extract to not use an empty block for IKM for PSK
 static void generate_server_secrets() { // has to be a different function since it requires the transcript hash to be up-to-date
     unsigned char * null_block = NULL;
@@ -576,7 +639,7 @@ int construct_server_hello(unsigned char * buffer, size_t prev_record_end_offset
     //extensions_len += ((is_retry_request && chosen_signature_algo == 0)?(2+2+2+2):0); // not supported, look below - 2 signature_algo id, 2 size, 2 preferred algo vec size, 2 preferred algo
 
     size_t final_size = 
-    sizeof(TLS_plainttext_header) +
+    sizeof(TLS_record_header) +
     sizeof(TLS_handshake) + 
     2 + // version
     TLS_RANDOM_LEN +
@@ -590,17 +653,17 @@ int construct_server_hello(unsigned char * buffer, size_t prev_record_end_offset
 
     memset(buffer, 0, len);
 
-    *(TLS_plainttext_header *)buffer = (TLS_plainttext_header) {
+    *(TLS_record_header *)buffer = (TLS_record_header) {
         .content_type = CT_HANDSHAKE,
         .legacy_record_version = htons(TLS12_COMPAT_VERSION),
-        .length = htons(final_size-sizeof(TLS_plainttext_header))
+        .length = htons(final_size-sizeof(TLS_record_header))
     };
 
-    size_t bufoff = sizeof(TLS_plainttext_header);
+    size_t bufoff = sizeof(TLS_record_header);
 
     ((TLS_handshake*)(buffer+bufoff))->msg_type = HT_SERVER_HELLO;
     ((TLS_handshake*)(buffer+bufoff))->length[0] = 0;
-    *(short*)&(((TLS_handshake*)(buffer+bufoff))->length[1]) = htons(final_size-sizeof(TLS_handshake)-sizeof(TLS_plainttext_header)); // length is uint24 so cheeky trick
+    *(short*)&(((TLS_handshake*)(buffer+bufoff))->length[1]) = htons(final_size-sizeof(TLS_handshake)-sizeof(TLS_record_header)); // length is uint24 so cheeky trick
 
     bufoff += sizeof(TLS_handshake);
     *(short*)(buffer+bufoff) = TLS12_COMPAT_VERSION;
@@ -676,17 +739,14 @@ int construct_server_hello(unsigned char * buffer, size_t prev_record_end_offset
 
     switch (chosen_cipher_suite) {
         case TLS_AES_128_GCM_SHA256:
-            sha256_update(&transcript_hash_ctx, buffer + sizeof(TLS_plainttext_header), final_size-sizeof(TLS_plainttext_header));
+            sha256_update(&transcript_hash_ctx, buffer + sizeof(TLS_record_header), final_size-sizeof(TLS_record_header));
             break;
         case TLS_AES_256_GCM_SHA384:
-            sha384_update(&transcript_hash_ctx, buffer + sizeof(TLS_plainttext_header), final_size-sizeof(TLS_plainttext_header));
+            sha384_update(&transcript_hash_ctx, buffer + sizeof(TLS_record_header), final_size-sizeof(TLS_record_header));
             break;
         default:
             fprintf(stderr, "Chosen unsupported cipher suite (how did we get here?)\n");
             return -AD_HANDSHAKE_FAILURE;
-    }
-    if (!is_retry_request) {
-        generate_server_secrets();
     }
     return final_size;
 }
@@ -712,7 +772,7 @@ int handshake_tls(unsigned char * buffer, size_t record_end_offset, size_t len) 
 
     message_offset += sizeof(TLS_handshake);
 
-    if ((message_counter == 1 || trying_helloretry == 1) && handshake.msg_type == HT_CLIENT_HELLO) { // start of tls
+    if ((recv_message_counter == 1 || trying_helloretry == 1) && handshake.msg_type == HT_CLIENT_HELLO) { // start of tls
         if (trying_helloretry == 1) trying_helloretry = 2;
 
         struct ClientHello CH_packet = {0};
@@ -756,6 +816,10 @@ int handshake_tls(unsigned char * buffer, size_t record_end_offset, size_t len) 
                 }
             }
             int out = construct_server_hello(buffer, record_end_offset, len, MAX_REQUEST_SIZE, CH_packet, trying_helloretry == 1);
+            if (trying_helloretry != 1) {
+                generate_server_secrets();
+                generate_traffic_keys(client_hs_traffic_secret, server_hs_traffic_secret);
+            }
             free_client_hello(CH_packet);
             return out;
         }
@@ -772,10 +836,94 @@ int handshake_tls(unsigned char * buffer, size_t record_end_offset, size_t len) 
     return -AD_UNEXPECTED_MESSAGE; // no way we get here
 }
 
+/* https://www.rfc-editor.org/rfc/rfc8446#section-5.2
+      struct {
+          opaque content[TLSPlaintext.length];
+          ContentType type;
+          uint8 zeros[length_of_padding];
+      } TLSInnerPlaintext;
+      struct {
+          ContentType opaque_type = application_data; // 23
+          ProtocolVersion legacy_record_version = 0x0303; // TLS v1.2
+          uint16 length;
+          opaque encrypted_record[TLSCiphertext.length];
+      } TLSCiphertext;
+*/
+
+int encrypt_tls_packet(unsigned char original_packet_type, unsigned char * restrict out_buf, size_t out_buf_len, const unsigned char * restrict input_buf, size_t in_buf_len) {
+    size_t aead_tag_len = 0;
+    switch (chosen_cipher_suite) {
+        case TLS_AES_128_GCM_SHA256:
+        case TLS_AES_256_GCM_SHA384:
+            aead_tag_len = GCM_BLOCK_SIZE;
+            break;
+        default:
+            fprintf(stderr, "Chosen unsupported cipher suite (how did we get here?)\n");
+            return -AD_HANDSHAKE_FAILURE;
+    }
+
+    size_t pad_bytes = 0; // selected 0 because it is not required, see https://www.rfc-editor.org/rfc/rfc8446#section-5.4
+    size_t wrapped_len = in_buf_len + 1 + pad_bytes;
+    unsigned char * input_buf_wrapped = malloc(wrapped_len);
+    assert(input_buf_wrapped);
+    memcpy(input_buf_wrapped, input_buf, in_buf_len);
+    input_buf_wrapped[in_buf_len] = original_packet_type;
+
+    size_t ret_len = wrapped_len + aead_tag_len + sizeof(TLS_record_header);
+    assert(out_buf_len >= ret_len);
+    memset(out_buf, 0, ret_len);
+
+    *(TLS_record_header *)out_buf = (TLS_record_header) {
+        .content_type = CT_APPLICATION_DATA,
+        .legacy_record_version = htons(TLS12_COMPAT_VERSION),
+        .length = htons(wrapped_len + aead_tag_len)
+    };
+
+    unsigned char * nonce = NULL;
+    uint8_t * ciphertext = NULL;
+
+    // https://www.rfc-editor.org/rfc/rfc8446#section-5.2
+    switch (chosen_cipher_suite) {
+        case TLS_AES_128_GCM_SHA256:
+        case TLS_AES_256_GCM_SHA384:
+            // https://www.rfc-editor.org/rfc/rfc8446#section-5.3
+            nonce = calloc(AES_GCM_DEFAULT_IV_LEN, 1); // should be max of 8 or N_MIN (in this case AES_GCM_DEFAULT_IV_LEN since AES-GCM takes any length)
+            assert(nonce);
+            *(uint64_t*)(nonce + AES_GCM_DEFAULT_IV_LEN - sizeof(uint64_t)) = htobe64(txd_message_counter); // network byte order to be exact, no such thing as htonll
+            for (int i = 0; i < AES_GCM_DEFAULT_IV_LEN; i++) {
+                nonce[i] ^= ((uint8_t *)(server_write_iv.data))[i];
+            }
+    }
+    switch (chosen_cipher_suite) {
+        case TLS_AES_128_GCM_SHA256:
+            ciphertext = aes_128_gcm_enc(input_buf_wrapped, wrapped_len, 
+                out_buf, sizeof(TLS_record_header), 
+                nonce, AES_GCM_DEFAULT_IV_LEN, 
+                out_buf + sizeof(TLS_record_header) + wrapped_len, 
+                server_write_key.data);
+            assert(ciphertext);    
+            break;
+        case TLS_AES_256_GCM_SHA384:
+            ciphertext = aes_256_gcm_enc(input_buf_wrapped, wrapped_len, 
+                out_buf, sizeof(TLS_record_header), 
+                nonce, AES_GCM_DEFAULT_IV_LEN, 
+                out_buf + sizeof(TLS_record_header) + wrapped_len, 
+                server_write_key.data);
+            assert(ciphertext);  
+            break;
+    }
+
+    memcpy(out_buf+sizeof(TLS_record_header), ciphertext, wrapped_len);
+
+    free(input_buf_wrapped);
+    free(nonce);
+    free(ciphertext);
+    return ret_len;
+}
 
 int decrypt_tls(unsigned char* buffer, size_t len) { // TODO: implement alerts, implement actually valid bounds checking
 
-    if (len < sizeof(TLS_plainttext_header)) {
+    if (len < sizeof(TLS_record_header)) {
         return -AD_DECODE_ERROR;
     }
     
@@ -787,10 +935,10 @@ int decrypt_tls(unsigned char* buffer, size_t len) { // TODO: implement alerts, 
 
     size_t record_offset = 0;
 
-    TLS_plainttext_header record = {0};
+    TLS_record_header record = {0};
 
-    memcpy(&record, buffer, sizeof(TLS_plainttext_header));
-    record_offset += sizeof(TLS_plainttext_header);
+    memcpy(&record, buffer, sizeof(TLS_record_header));
+    record_offset += sizeof(TLS_record_header);
 
     get_wrapped:
     if (record.content_type == CT_INVALID || (record.content_type != CT_ALERT && record.content_type != CT_HANDSHAKE && record.content_type != CT_APPLICATION_DATA && record.content_type != CT_CHANGE_CIPHER_SPEC)) {
@@ -799,10 +947,10 @@ int decrypt_tls(unsigned char* buffer, size_t len) { // TODO: implement alerts, 
     }
 
     if (record.content_type == CT_CHANGE_CIPHER_SPEC) { // wrapped record (middlebox compatibility) (disguising tls 1.3 as tls 1.2)
-        if (record_offset + htons(record.length) + sizeof(TLS_plainttext_header) >= len) goto trunc;
+        if (record_offset + htons(record.length) + sizeof(TLS_record_header) >= len) goto trunc;
         record_offset += htons(record.length);
-        memcpy(&record, buffer+record_offset, sizeof(TLS_plainttext_header));
-        record_offset += sizeof(TLS_plainttext_header);
+        memcpy(&record, buffer+record_offset, sizeof(TLS_record_header));
+        record_offset += sizeof(TLS_record_header);
         goto get_wrapped;
     }
 
@@ -825,14 +973,15 @@ int decrypt_tls(unsigned char* buffer, size_t len) { // TODO: implement alerts, 
 
     switch (record.content_type) {
         case CT_ALERT:
-            fprintf(stderr, "Recieved ALERT: level: 0x%02hhx, desc 0x%02hhx\n", *(buffer+sizeof(TLS_plainttext_header)),*(buffer+sizeof(TLS_plainttext_header)+1));
+            fprintf(stderr, "Recieved ALERT: level: 0x%02hhx, desc 0x%02hhx\n", *(buffer+sizeof(TLS_record_header)),*(buffer+sizeof(TLS_record_header)+1));
             return 0xFFFFFFFF;
             break;
         case CT_HANDSHAKE:
-            if (len < sizeof(TLS_plainttext_header)+sizeof(TLS_handshake)) return -AD_DECODE_ERROR;
+            if (len < sizeof(TLS_record_header)+sizeof(TLS_handshake)) return -AD_DECODE_ERROR;
             int out_len = handshake_tls(buffer, record_offset, record.length);
             return out_len; // negative = alert
         case CT_APPLICATION_DATA:
+            // decrypt packet
             break;
     }
 
@@ -840,9 +989,9 @@ int decrypt_tls(unsigned char* buffer, size_t len) { // TODO: implement alerts, 
     return 0;
 }
 
-void construct_encrypted_extensions(unsigned char * buffer, size_t len) {
-
-
+int construct_encrypted_extensions(unsigned char * buffer, size_t len) {
+    static const unsigned char ee_packet[] = "\x08\x00\x00\x02\x00\x00";
+    return encrypt_tls_packet(CT_HANDSHAKE, buffer, len, ee_packet, sizeof(ee_packet) - 1);
 }
 
 void cleanup() {
@@ -856,8 +1005,10 @@ void cleanup() {
     hkdf_free(master_secret);
     free(server_hs_traffic_secret.data);
     free(client_hs_traffic_secret.data);
-    free(server_hs_iv.data); 
-    free(client_hs_iv.data);
+    free(server_write_iv.data); 
+    free(client_write_iv.data);
+    free(server_write_key.data); 
+    free(client_write_key.data);
     free(server_application_secret_0.data);
     free(server_application_iv.data);
     free(client_application_secret_0.data);

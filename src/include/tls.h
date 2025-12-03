@@ -270,7 +270,7 @@ struct {
     unsigned short legacy_record_version; // always 0x0301, unless wrapped in change cipher spec, in which case 0303
     unsigned short length;
     // unsigned char data[length]
-} __attribute__((packed)) typedef TLS_plainttext_header;
+} __attribute__((packed)) typedef TLS_record_header;
 
 struct {
     unsigned char msg_type;

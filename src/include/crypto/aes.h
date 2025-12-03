@@ -1,6 +1,8 @@
 #ifndef AES_H
 #define AES_H
 
+#define AES_GCM_DEFAULT_IV_LEN 12
+
 #define AES_WORD_TYPE uint32_t
 #define AES_WORD_SIZE sizeof(AES_WORD_TYPE)
 
