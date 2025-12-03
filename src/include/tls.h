@@ -8,7 +8,7 @@
 #include "memstructs.h"
 
 #define TLS_SERVER_HELLO_RETRY_REQUEST_MAGIC "\xCF\x21\xAD\x74\xE5\x9A\x61\x11\xBE\x1D\x8C\x02\x1E\x65\xB8\x91\xC2\xA2\x11\x16\x7A\xBB\x8C\x5E\x07\x9E\x09\xE2\xC8\xA8\x33\x9C" // sha256 of "HelloRetryRequest", see rfc8446 page 32
-#define TLS_BACKCOMP_SERVER_CHANGE_CIPHER_SPEC "\x14\x03\x03\x00\x01\x01"
+//#define TLS_BACKCOMP_SERVER_CHANGE_CIPHER_SPEC "\x14\x03\x03\x00\x01\x01"
 struct KeyShareNode {
     unsigned short group;
     Vector key_exchange;
@@ -213,7 +213,7 @@ enum NamedGroups { // key share, ushort
 
 enum ContentType { // records, uchar
     CT_INVALID = 0,
-    //CT_CHANGE_CIPHER_SPEC = 20, // TLS 1.2 compatibility
+    CT_CHANGE_CIPHER_SPEC = 20, // TLS 1.2 compatibility
     CT_ALERT = 21,
     CT_HANDSHAKE = 22,
     CT_APPLICATION_DATA = 23,
@@ -267,7 +267,7 @@ struct Alert {
 
 struct {
     unsigned char content_type;
-    unsigned short legacy_record_version; // always 0x0301
+    unsigned short legacy_record_version; // always 0x0301, unless wrapped in change cipher spec, in which case 0303
     unsigned short length;
     // unsigned char data[length]
 } __attribute__((packed)) typedef TLS_plainttext_header;
@@ -282,9 +282,10 @@ struct {
     Vector extension_data; //uint8, 0-65535
 } typedef Extension;
 
+#define TLS_RANDOM_LEN 32
 struct ClientHello {
     unsigned short legacy_version; // = 0x0303
-    unsigned char random[32];
+    unsigned char random[TLS_RANDOM_LEN];
     Vector legacy_session_id; // 0-32 bytes
     Vector cipher_suites; // uint8[2], 2-65534 bytes
     Vector legacy_compression_methods; // uint8 1-255, always 0
@@ -293,7 +294,7 @@ struct ClientHello {
 
 struct ServerHello {
     unsigned short legacy_version; // 0x0303
-    unsigned char random[32];
+    unsigned char random[TLS_RANDOM_LEN];
     Vector legacy_session_id; // 0 - 32
     unsigned short cipher_suite; // better to work with than char[2]
     unsigned char legacy_compression_method; // 0

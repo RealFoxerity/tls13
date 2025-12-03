@@ -17,16 +17,24 @@
 #include "include/tls.h"
 #include "include/tls_extensions.h"
 #include "include/memstructs.h"
+#include "include/crypto/secp256.h"
 
 #define MIN(a,b) (a>b?b:a)
 #define MAX(a,b) (a<b?b:a)
+
+// TODO: find time to rewrite most of htons to htobe16 for clarity
 
 // targetting TLS v1.3, no compatibility mode based on https://www.rfc-editor.org/rfc/rfc8446
 
 // Extensions
 char * target_server_name = NULL;
 
-struct KeyShareNode chosen_key_share = {0};
+struct KeyShareNode client_key_share = {0}; // includes our chosen algorithm
+struct KeyShareNode server_key_share = {0}; // this and server_ecdhe_keys share the same pointer, free only one
+Keys server_ecdhe_keys = {0}; // private & public keys, get type from client/server_key_share
+
+Vector shared_master_key;
+
 unsigned short chosen_signature_algo = 0;
 unsigned short chosen_group = 0;
 unsigned short chosen_cipher_suite = 0;
@@ -44,7 +52,7 @@ enum tls_state current_state = TS_SETTING_UP_INTERACTIVE;
 
 void free_tls_metadata() {
     free(target_server_name);
-    free(chosen_key_share.key_exchange.data);
+    free(client_key_share.key_exchange.data);
     free(tls_packet_buffer);
 }
 
@@ -118,11 +126,6 @@ char ssl_wrapper(int socket_fd) {
                         break;
                     case TS_SETTING_UP_SERVER_SIDE: // sending the actual server hello, change cipher spec, wrapped records, encrypted extensions
                         send(socket_fd, tls_packet_buffer, ret, 0);
-
-                        memcpy(tls_packet_buffer, TLS_BACKCOMP_SERVER_CHANGE_CIPHER_SPEC, sizeof(TLS_BACKCOMP_SERVER_CHANGE_CIPHER_SPEC)-1); // -1 because of null byte, blank change cipher spec to conform to "middlebox backwards compatibility mode", pretty easy to implement so why not
-                        send(socket_fd, tls_packet_buffer, sizeof(TLS_BACKCOMP_SERVER_CHANGE_CIPHER_SPEC)-1, 0);
-
-
                     default:
                         break;
                 }
@@ -288,7 +291,7 @@ int parse_extensions(struct ClientHello CH) { // TODO: parse extentions .... :D
     do {
         printf("%04hx\n", curr->node.group);
         if (curr->node.group == NG_SECP256R1) {
-            chosen_key_share = curr->node;
+            client_key_share = curr->node;
             //break;
         }
     } while ((curr = curr->next) != NULL);
@@ -298,7 +301,7 @@ int parse_extensions(struct ClientHello CH) { // TODO: parse extentions .... :D
     prev = key_shares;
     do {
         prev = *curr;
-        if (curr->node.key_exchange.data != chosen_key_share.key_exchange.data) // for some reason can't do curr->node != chosen_key_share
+        if (curr->node.key_exchange.data != client_key_share.key_exchange.data) // for some reason can't do curr->node != chosen_key_share
             free(curr->node.key_exchange.data);
         if (curr != &key_shares) {
             free(curr);
@@ -316,7 +319,7 @@ int parse_extensions(struct ClientHello CH) { // TODO: parse extentions .... :D
         return -AD_HANDSHAKE_FAILURE;
     }
 
-    if (chosen_key_share.group == 0) {
+    if (client_key_share.group == 0) {
         printf("No mutually supported key share algorithms\n");
         return -AD_HANDSHAKE_FAILURE;
     }
@@ -341,17 +344,46 @@ void free_client_hello(struct ClientHello CH) {
     free(CH.legacy_session_id.data);
 }
 
+static int generate_server_keys() {
+    if (client_key_share.group != NG_SECP256R1) {
+        fprintf(stderr, "Unsupported key share group!\n");
+        return -AD_HANDSHAKE_FAILURE;
+    }
+
+    struct secp_key keys = secp256_gen_public_key();
+    assert(keys.public_key);
+    assert(keys.private_key);
+
+    server_ecdhe_keys.private_key.len = SECP256_PRIVKEY_SIZE;
+    server_ecdhe_keys.private_key.data = keys.private_key;
+
+    server_ecdhe_keys.public_key.len = SECP256_PUBKEY_SIZE;
+    server_ecdhe_keys.public_key.data = keys.public_key;
+
+    server_key_share.group = NG_SECP256R1;
+    server_key_share.key_exchange.len = SECP256_PUBKEY_SIZE;
+    server_key_share.key_exchange.data = keys.public_key;
+
+    shared_master_key.len = SECP256_PRIVKEY_SIZE;
+    shared_master_key.data = secp256_get_shared_key(server_ecdhe_keys.private_key.data, client_key_share.key_exchange.data);
+    assert(shared_master_key.data);
+
+    return 0;
+}
+
 int construct_server_hello(unsigned char * buffer, size_t len, struct ClientHello CH, char is_retry_request) {
     size_t extensions_len = 0;  // we dont't have any encrypted extensions
     //must respond to supported_versions, key_share
     extensions_len += 2+2+2; // 2 supported versions extension id, 2 size, 2 supported version
-    extensions_len += 2+2+2+(is_retry_request==0?(2+chosen_key_share.key_exchange.len):0); // 2 key_share extension id, 2 size, 2 chosen algo, 2 public key len, public key
+    extensions_len += 2+2+2+(is_retry_request==0?(2+client_key_share.key_exchange.len):0); // 2 key_share extension id, 2 size, 2 chosen algo, 2 public key len, public key
         
     //extensions_len += ((is_retry_request && chosen_signature_algo == 0)?(2+2+2+2):0); // not supported, look below - 2 signature_algo id, 2 size, 2 preferred algo vec size, 2 preferred algo
 
-    size_t final_size = sizeof(TLS_handshake) + 
-    2 + //version
-    32 +  // server random
+    size_t final_size = 
+    sizeof(TLS_plainttext_header) +
+    sizeof(TLS_handshake) + 
+    2 + // version
+    TLS_RANDOM_LEN +
     1 + CH.legacy_session_id.len + 
     2 + // cipher suite
     1 + // legacy compression
@@ -361,11 +393,18 @@ int construct_server_hello(unsigned char * buffer, size_t len, struct ClientHell
     assert(final_size <= len);
 
     memset(buffer, 0, len);
-    size_t bufoff = 0;
+
+    *(TLS_plainttext_header *)buffer = (TLS_plainttext_header) {
+        .content_type = CT_HANDSHAKE,
+        .legacy_record_version = htons(TLS12_COMPAT_VERSION),
+        .length = htons(final_size-sizeof(TLS_plainttext_header))
+    };
+
+    size_t bufoff = sizeof(TLS_plainttext_header);
 
     ((TLS_handshake*)(buffer+bufoff))->msg_type = HT_SERVER_HELLO;
     ((TLS_handshake*)(buffer+bufoff))->length[0] = 0;
-    *(short*)&(((TLS_handshake*)(buffer+bufoff))->length[1]) = htons(final_size-sizeof(TLS_handshake)); // length is uint24 so cheeky trick
+    *(short*)&(((TLS_handshake*)(buffer+bufoff))->length[1]) = htons(final_size-sizeof(TLS_handshake)-sizeof(TLS_plainttext_header)); // length is uint24 so cheeky trick
 
     bufoff += sizeof(TLS_handshake);
     *(short*)(buffer+bufoff) = TLS12_COMPAT_VERSION;
@@ -376,11 +415,11 @@ int construct_server_hello(unsigned char * buffer, size_t len, struct ClientHell
         for (int i =0; i < 8; i++) { // get random for server random field TODO: FIX!!! HAVE TO USE CSPRNG
             ((int*)(buffer+bufoff))[i] = random();
         }
-        memcpy(random_crypto, buffer+bufoff, 32);
+        memcpy(random_crypto, buffer+bufoff, TLS_RANDOM_LEN);
     } else {
-        memcpy(buffer+bufoff, TLS_SERVER_HELLO_RETRY_REQUEST_MAGIC, 32);
+        memcpy(buffer+bufoff, TLS_SERVER_HELLO_RETRY_REQUEST_MAGIC, TLS_RANDOM_LEN);
     }
-    bufoff += 32;
+    bufoff += TLS_RANDOM_LEN;
 
     buffer[bufoff] = CH.legacy_session_id.len;
     bufoff ++;
@@ -411,18 +450,20 @@ int construct_server_hello(unsigned char * buffer, size_t len, struct ClientHell
     *(short*)&(buffer[bufoff]) = htons(ET_KEY_SHARE);
     bufoff +=2;
 
-    *(short*)&(buffer[bufoff]) = htons(2+(is_retry_request==0?2+chosen_key_share.key_exchange.len:0)); // 2 for group, 2 for vector len
+    *(short*)&(buffer[bufoff]) = htons(2+(is_retry_request==0?2+client_key_share.key_exchange.len:0)); // 2 for group, 2 for vector len
     bufoff +=2;
     
-    *(short*)&(buffer[bufoff]) = htons(chosen_key_share.group);
+    *(short*)&(buffer[bufoff]) = htons(is_retry_request?NG_SECP256R1:client_key_share.group);
     bufoff +=2;
     
     if (!is_retry_request) {
-        *(short*)&(buffer[bufoff]) = htons(chosen_key_share.key_exchange.len);
+        int keys_generated = generate_server_keys();
+        if (keys_generated != 0) return keys_generated; // alerts
+        *(short*)&(buffer[bufoff]) = htons(server_key_share.key_exchange.len);
         bufoff +=2;
         
-        memcpy(buffer+bufoff, chosen_key_share.key_exchange.data, chosen_key_share.key_exchange.len);
-        bufoff += chosen_key_share.key_exchange.len;
+        memcpy(buffer+bufoff, server_key_share.key_exchange.data, server_key_share.key_exchange.len);
+        bufoff += server_key_share.key_exchange.len;
     }
 
     //if (is_retry_request && chosen_signature_algo == 0) { // ET_SIGNATURE_ALGORITHMS is NOT one of the renegoatiable parameters
@@ -440,11 +481,12 @@ int construct_server_hello(unsigned char * buffer, size_t len, struct ClientHell
     return final_size;
 }
 
-int handshake_tls(unsigned char * buffer, size_t len) {
+int handshake_tls(unsigned char * buffer, size_t message_offset, size_t len) {
+    static char trying_helloretry = 0; // only case in which renegotiation is allowed
     int ret;
-    size_t message_offset = 0;
+
     TLS_handshake handshake = {0};
-    memcpy(&handshake, buffer, sizeof(TLS_handshake));
+    memcpy(&handshake, buffer + message_offset, sizeof(TLS_handshake));
     int handshake_len = (handshake.length[0] << 16) + (handshake.length[1] << 8) + handshake.length[2];
 
     if (handshake_len > len-sizeof(TLS_handshake)) {
@@ -456,20 +498,27 @@ int handshake_tls(unsigned char * buffer, size_t len) {
 
     message_offset += sizeof(TLS_handshake);
 
-    if (message_counter == 1 && handshake.msg_type == HT_CLIENT_HELLO) { // start of tls
+    if ((message_counter == 1 || trying_helloretry) && handshake.msg_type == HT_CLIENT_HELLO) { // start of tls
+        if (trying_helloretry) trying_helloretry = 0;
+
         struct ClientHello CH_packet = {0};
-        memcpy(&CH_packet, buffer+message_offset, 34); // 34 for legacy_version + random, rest are dynamic
-        message_offset += 34;
+        memcpy(&CH_packet, buffer+message_offset, sizeof(CH_packet.legacy_version) + TLS_RANDOM_LEN); // 34 for legacy_version + random, rest are dynamic
+        
+        message_offset += sizeof(CH_packet.legacy_version) + TLS_RANDOM_LEN;
+
+
         if (CH_packet.legacy_version != htons(TLS12_COMPAT_VERSION)) { // doesn't need htons cuz big endian of 0x0303 is 0x0303 if you didn't know :3
             fprintf(stderr, "Invalid TLS client hello message (version %d))!\n", CH_packet.legacy_version);
             return -AD_ILLEGAL_PARAMETER; // shouldn't be sent by server, but is the best choice
+
         } else {
             fprintf(stderr, "Recieved TLS client hello!\n");
-            parse_client_hello(buffer+message_offset, len-message_offset, &CH_packet);
+            parse_client_hello(buffer+message_offset, handshake_len - sizeof(TLS_handshake), &CH_packet);
             
             if ((ret = parse_extensions(CH_packet)) == -AD_HANDSHAKE_FAILURE) {
                 if (chosen_signature_algo == 0) goto CH_fail; // signature algorithms is nonrenegoatiable
                 fprintf(stderr, "Failed to find mutual parameters, trying helloretryrequest\n");
+                trying_helloretry = 1;
             } else if (ret != 1) {
                 CH_fail:
                 fprintf(stderr, "Failed to parse TLS ClientHello extensions, returning alert %d\n", -ret);
@@ -492,7 +541,7 @@ int handshake_tls(unsigned char * buffer, size_t len) {
 }
 
 
-int decrypt_tls(unsigned char* buffer, size_t len) { // TODO: implement alerts
+int decrypt_tls(unsigned char* buffer, size_t len) { // TODO: implement alerts, implement actually valid bounds checking
 
     if (len < sizeof(TLS_plainttext_header)) {
         return -AD_DECODE_ERROR;
@@ -511,9 +560,18 @@ int decrypt_tls(unsigned char* buffer, size_t len) { // TODO: implement alerts
     memcpy(&record, buffer, sizeof(TLS_plainttext_header));
     record_offset += sizeof(TLS_plainttext_header);
 
-    if (record.content_type == CT_INVALID || (record.content_type != CT_ALERT && record.content_type != CT_HANDSHAKE && record.content_type != CT_APPLICATION_DATA)) {
+    get_wrapped:
+    if (record.content_type == CT_INVALID || (record.content_type != CT_ALERT && record.content_type != CT_HANDSHAKE && record.content_type != CT_APPLICATION_DATA && record.content_type != CT_CHANGE_CIPHER_SPEC)) {
         fprintf(stderr, "Invalid TLS record content type!\n");
         return -AD_ILLEGAL_PARAMETER;
+    }
+
+    if (record.content_type == CT_CHANGE_CIPHER_SPEC) { // wrapped record (middlebox compatibility) (disguising tls 1.3 as tls 1.2)
+        if (record_offset + htons(record.length) + sizeof(TLS_plainttext_header) >= len) goto trunc;
+        record_offset += htons(record.length);
+        memcpy(&record, buffer+record_offset, sizeof(TLS_plainttext_header));
+        record_offset += sizeof(TLS_plainttext_header);
+        goto get_wrapped;
     }
 
     record.legacy_record_version = htons(record.legacy_record_version);
@@ -525,10 +583,11 @@ int decrypt_tls(unsigned char* buffer, size_t len) { // TODO: implement alerts
     
     record.length = htons(record.length);
 
-    if (record.length > len-sizeof(TLS_plainttext_header)) {
+    if (record.length > len-record_offset) {
+        trunc:
         fprintf(stderr, "Invalid TLS record length/truncated!\n");
         return -AD_DECODE_ERROR;
-    } else if (record.length < len-sizeof(TLS_plainttext_header)) {
+    } else if (record.length < len-record_offset) {
         fprintf(stderr, "Warning: record length smaller than recieved data!\n");
     }
 
@@ -539,16 +598,8 @@ int decrypt_tls(unsigned char* buffer, size_t len) { // TODO: implement alerts
             break;
         case CT_HANDSHAKE:
             if (len < sizeof(TLS_plainttext_header)+sizeof(TLS_handshake)) return -AD_DECODE_ERROR;
-            int out_len = handshake_tls(buffer+record_offset, record.length);
-            if (out_len < 0) return out_len;
-
-            memset(buffer, 0, sizeof(TLS_plainttext_header));
-
-            ((TLS_plainttext_header*)buffer)->content_type = CT_HANDSHAKE;
-            ((TLS_plainttext_header*)buffer)->legacy_record_version = htons(TLS11_COMPAT_VERSION);
-            ((TLS_plainttext_header*)buffer)->length = htons(out_len);
-            
-            return out_len + sizeof(TLS_plainttext_header);
+            int out_len = handshake_tls(buffer, record_offset, record.length);
+            return out_len; // negative = alert
         case CT_APPLICATION_DATA:
             break;
     }
@@ -563,6 +614,9 @@ void construct_encrypted_extensions(unsigned char * buffer, size_t len) {
 }
 
 void cleanup() {
-    free(chosen_key_share.key_exchange.data);
+    free(client_key_share.key_exchange.data);
     free(target_server_name);
+    free(server_ecdhe_keys.private_key.data);
+    free(server_ecdhe_keys.public_key.data);
+    free(shared_master_key.data);
 }

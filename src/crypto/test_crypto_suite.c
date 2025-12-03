@@ -5,6 +5,7 @@
 #include "../include/crypto/sha2.h"
 #include "../include/crypto/aes.h"
 #include "../include/crypto/hmac.h"
+#include "../include/crypto/hkdf.h"
 #include <assert.h>
 #include <string.h>
 
@@ -35,6 +36,11 @@ const unsigned char * aes_keys[] = {
 const unsigned char * aes_ciphertext[] = {
     (unsigned char*)"\x39\x25\x84\x1d\x02\xdc\x09\xfb\xdc\x11\x85\x97\x19\x6a\x0b\x32"
 };
+
+const unsigned char plain_hkdf_ikm[] = "\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b";
+const unsigned char plain_hkdf_salt[] = "\x00\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a\x0b\x0c";
+const unsigned char plain_hkdf_info[] = "\xf0\xf1\xf2\xf3\xf4\xf5\xf6\xf7\xf8\xf9";
+const size_t plain_hkdf_okm_size = 42;
 
 #define max(a,b) ((a)>(b)?(a):(b))
 
@@ -440,6 +446,21 @@ int main() {
     for (int i = 0; i < SHA256_HASH_BYTES; i++) {
         printf("%02hhx", code[i]);
     }
+    free(code);
     printf("\nE:    1090f043a91a1b50054e75d54fcb5e1a5309cb77a0bafa2669cbf9c75fa810fe\n");
+
+    printf("Plain HKDF SHA-256 test, rfc 5869 test case 1\n\tPRK: ");
+    struct prk plain_hkdf_prk = hkdf_extract(HMAC_SHA2_256, plain_hkdf_salt, sizeof(plain_hkdf_salt)-1, plain_hkdf_ikm, sizeof(plain_hkdf_ikm) - 1);
+    for (int i = 0; i < plain_hkdf_prk.prk_len; i++) {
+        printf("%02hhx", plain_hkdf_prk.prk[i]);
+    }
+    printf("\n\tE:   077709362c2e32df0ddc3f0dc47bba6390b6c73bb50f9c3122ec844ad7c2b3e5\n\tOKM: ");
+    unsigned char * plain_hkdf_okm = hkdf_expand(HMAC_SHA2_256, plain_hkdf_prk, plain_hkdf_info, sizeof(plain_hkdf_info)-1, plain_hkdf_okm_size);
+    for (int i = 0; i < plain_hkdf_okm_size; i++) {
+        printf("%02hhx", plain_hkdf_okm[i]);
+    }
+    printf("\n\tE:   3cb25f25faacd57a90434f64d0362f2a2d2d0a90cf1a5a4c5db02d56ecc4c5bf34007208d5b887185865\n");
+    free(plain_hkdf_okm);
+    hkdf_free(plain_hkdf_prk);
     return 0;
 }

@@ -9,7 +9,7 @@
 #define IPAD_BYTE 0x36
 #define OPAD_BYTE 0x5C
 
-unsigned char * hmac(enum hmac_supported_hashes hash_type, const unsigned char * key, size_t key_len, const unsigned char * in, size_t in_len) {    
+__attribute__((warn_unused_result)) unsigned char * hmac(enum hmac_supported_hashes hash_type, const unsigned char * key, size_t key_len, const unsigned char * in, size_t in_len) {    
     void (*init)    (sha2_ctx_t * ctx);
     void (*update)  (sha2_ctx_t * ctx, const unsigned char * input, size_t input_len);
     void (*finalize)(sha2_ctx_t * ctx, unsigned char * hash_out);

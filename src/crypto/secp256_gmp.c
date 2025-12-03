@@ -20,7 +20,7 @@
 //}
 
 
-struct secp_key secp256_gen_public_key() {
+__attribute__((warn_unused_result)) struct secp_key secp256_gen_public_key() {
     // TODO: use csrng, implement https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.186-5.pdf A.2.1 - ECDSA Key Pair Generation using Extra Random Bits
     // this is just a testing setup
     unsigned char * privkey = NULL;
@@ -85,7 +85,7 @@ static inline elpoint get_point_from_pubkey(const unsigned char * public_key) {
     return out;
 }
 
-unsigned char * secp256_get_shared_key(const unsigned char * private_key, const unsigned char * bob_public_key) { // ECSVDP-DH for DL/ECKAS-DH1 see IEEE 1363-2000 page 29-30 and 47-48 respectively
+__attribute__((warn_unused_result)) unsigned char * secp256_get_shared_key(const unsigned char * private_key, const unsigned char * bob_public_key) { // ECSVDP-DH for DL/ECKAS-DH1 see IEEE 1363-2000 page 29-30 and 47-48 respectively
     // note: rfc 8446 (TLS) 7.4.2 (about ECDHE) requires only the X coordinate of the shared key
 
     elpoint pubkey_point;

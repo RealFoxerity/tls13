@@ -9,4 +9,7 @@ struct secp_key { // use free to deallocate
     unsigned char * public_key;
 };
 
+struct secp_key secp256_gen_public_key();
+unsigned char * secp256_get_shared_key(const unsigned char * private_key, const unsigned char * bob_public_key);
+
 #endif

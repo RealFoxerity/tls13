@@ -30,26 +30,14 @@ void aes_256_enc(const uint8_t plain_data[AES_BLOCK_SIZE], uint8_t enc_data_out[
 void aes_256_dec(const uint8_t enc_data[AES_BLOCK_SIZE],  uint8_t plain_data_out[AES_BLOCK_SIZE], const uint8_t block_cipher_key[AES_256_KEY_LEN]);
 
 
+__attribute__((warn_unused_result)) uint8_t * aes_128_gcm_enc(const uint8_t * plain_data, size_t data_len, const uint8_t * AAD, size_t aad_len, const uint8_t * IV, size_t iv_len, uint8_t auth_tag_out[GCM_BLOCK_SIZE], const uint8_t block_cipher_key[AES_128_KEY_LEN]);
+__attribute__((warn_unused_result)) uint8_t * aes_128_gcm_dec(const uint8_t * ciphertext, size_t data_len, const uint8_t * AAD, size_t aad_len, const uint8_t * IV, size_t iv_len, const uint8_t * auth_tag_in, const uint8_t block_cipher_key[AES_128_KEY_LEN]);
 
+__attribute__((warn_unused_result)) uint8_t * aes_192_gcm_enc(const uint8_t * plain_data, size_t data_len, const uint8_t * AAD, size_t aad_len, const uint8_t * IV, size_t iv_len, uint8_t auth_tag_out[GCM_BLOCK_SIZE], const uint8_t block_cipher_key[AES_192_KEY_LEN]);
+__attribute__((warn_unused_result)) uint8_t * aes_192_gcm_dec(const uint8_t * ciphertext, size_t data_len, const uint8_t * AAD, size_t aad_len, const uint8_t * IV, size_t iv_len, const uint8_t * auth_tag_in, const uint8_t block_cipher_key[AES_192_KEY_LEN]);
 
-void aes_128_ccm_enc(const uint8_t plain_data[AES_BLOCK_SIZE], uint8_t enc_data_out[AES_BLOCK_SIZE], const uint8_t block_cipher_key[AES_128_KEY_LEN]);
-void aes_128_ccm_dec(const uint8_t enc_data[AES_BLOCK_SIZE],  uint8_t plain_data_out[AES_BLOCK_SIZE], const uint8_t block_cipher_key[AES_128_KEY_LEN]);
-
-void aes_192_ccm_enc(const uint8_t plain_data[AES_BLOCK_SIZE], uint8_t enc_data_out[AES_BLOCK_SIZE], const uint8_t block_cipher_key[AES_192_KEY_LEN]);
-void aes_192_ccm_dec(const uint8_t enc_data[AES_BLOCK_SIZE],  uint8_t plain_data_out[AES_BLOCK_SIZE], const uint8_t block_cipher_key[AES_192_KEY_LEN]);
-
-void aes_256_ccm_enc(const uint8_t plain_data[AES_BLOCK_SIZE], uint8_t enc_data_out[AES_BLOCK_SIZE], const uint8_t block_cipher_key[AES_256_KEY_LEN]);
-void aes_256_ccm_dec(const uint8_t enc_data[AES_BLOCK_SIZE],  uint8_t plain_data_out[AES_BLOCK_SIZE], const uint8_t block_cipher_key[AES_256_KEY_LEN]);
-
-
-uint8_t * aes_128_gcm_enc(const uint8_t * plain_data, size_t data_len, const uint8_t * AAD, size_t aad_len, const uint8_t * IV, size_t iv_len, uint8_t auth_tag_out[GCM_BLOCK_SIZE], const uint8_t block_cipher_key[AES_128_KEY_LEN]);
-uint8_t * aes_128_gcm_dec(const uint8_t * ciphertext, size_t data_len, const uint8_t * AAD, size_t aad_len, const uint8_t * IV, size_t iv_len, const uint8_t * auth_tag_in, const uint8_t block_cipher_key[AES_128_KEY_LEN]);
-
-uint8_t * aes_192_gcm_enc(const uint8_t * plain_data, size_t data_len, const uint8_t * AAD, size_t aad_len, const uint8_t * IV, size_t iv_len, uint8_t auth_tag_out[GCM_BLOCK_SIZE], const uint8_t block_cipher_key[AES_192_KEY_LEN]);
-uint8_t * aes_192_gcm_dec(const uint8_t * ciphertext, size_t data_len, const uint8_t * AAD, size_t aad_len, const uint8_t * IV, size_t iv_len, const uint8_t * auth_tag_in, const uint8_t block_cipher_key[AES_192_KEY_LEN]);
-
-uint8_t * aes_256_gcm_enc(const uint8_t * plain_data, size_t data_len, const uint8_t * AAD, size_t aad_len, const uint8_t * IV, size_t iv_len, uint8_t auth_tag_out[GCM_BLOCK_SIZE], const uint8_t block_cipher_key[AES_256_KEY_LEN]);
-uint8_t * aes_256_gcm_dec(const uint8_t * ciphertext, size_t data_len, const uint8_t * AAD, size_t aad_len, const uint8_t * IV, size_t iv_len, const uint8_t * auth_tag_in, const uint8_t block_cipher_key[AES_256_KEY_LEN]);
+__attribute__((warn_unused_result)) uint8_t * aes_256_gcm_enc(const uint8_t * plain_data, size_t data_len, const uint8_t * AAD, size_t aad_len, const uint8_t * IV, size_t iv_len, uint8_t auth_tag_out[GCM_BLOCK_SIZE], const uint8_t block_cipher_key[AES_256_KEY_LEN]);
+__attribute__((warn_unused_result)) uint8_t * aes_256_gcm_dec(const uint8_t * ciphertext, size_t data_len, const uint8_t * AAD, size_t aad_len, const uint8_t * IV, size_t iv_len, const uint8_t * auth_tag_in, const uint8_t block_cipher_key[AES_256_KEY_LEN]);
 
 
 #endif

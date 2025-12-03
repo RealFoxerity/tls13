@@ -99,7 +99,7 @@ static uint128_t gcm_ghash(uint128_t hash_subkey, const uint8_t * blocks, size_t
     return Y;
 }
 
-static uint8_t * gcm_gctr(const uint8_t * key, int key_len, const uint8_t initial_counter_block[GCM_BLOCK_SIZE], // key size is so small, even char would suffice
+__attribute__((warn_unused_result)) static uint8_t * gcm_gctr(const uint8_t * key, int key_len, const uint8_t initial_counter_block[GCM_BLOCK_SIZE], // key size is so small, even char would suffice
         const uint8_t * bitstring, size_t bitstring_len) { //see page 13 (21)
     // implementation notes: X* can never be less than a single byte since we're operating on bytes, so point 7 is simplified
     if (bitstring_len == 0) return NULL;
@@ -193,7 +193,7 @@ static void aes_prepare(uint8_t * subkey, const uint8_t * key, size_t key_len, c
     }
 }
 
-static uint8_t * aes_gcm_authenticate_encryption_internal( // returns ciphertext, writes auth_tag to auth_tag_out
+__attribute__((warn_unused_result)) static uint8_t * aes_gcm_authenticate_encryption_internal( // returns ciphertext, writes auth_tag to auth_tag_out
         const uint8_t * plaintext, size_t data_len,
         const uint8_t * key, size_t key_len,
         const uint8_t * additional_auth_data, size_t aad_len, 
@@ -236,7 +236,7 @@ static uint8_t * aes_gcm_authenticate_encryption_internal( // returns ciphertext
     free(tag);
     return ciphertext;
 }  
-static uint8_t * aes_gcm_authenticate_decryption_internal ( // returns FAIL code, basically the exact same thing as ^ but checks the tag and S is different, todo: refactor
+__attribute__((warn_unused_result)) static uint8_t * aes_gcm_authenticate_decryption_internal ( // returns FAIL code, basically the exact same thing as ^ but checks the tag and S is different, todo: refactor
         const uint8_t * ciphertext, size_t data_len,
         const uint8_t * key, size_t key_len,
         const uint8_t * additional_auth_data, size_t aad_len, 
@@ -281,25 +281,25 @@ static uint8_t * aes_gcm_authenticate_decryption_internal ( // returns FAIL code
     return plaintext;
 }
 
-uint8_t * aes_128_gcm_enc(const uint8_t * plain_data, size_t data_len, const uint8_t * AAD, size_t aad_len, const uint8_t * IV, size_t iv_len, uint8_t auth_tag_out[GCM_BLOCK_SIZE], const uint8_t block_cipher_key[AES_128_KEY_LEN]) {
+__attribute__((warn_unused_result)) uint8_t * aes_128_gcm_enc(const uint8_t * plain_data, size_t data_len, const uint8_t * AAD, size_t aad_len, const uint8_t * IV, size_t iv_len, uint8_t auth_tag_out[GCM_BLOCK_SIZE], const uint8_t block_cipher_key[AES_128_KEY_LEN]) {
     return aes_gcm_authenticate_encryption_internal(plain_data, data_len, block_cipher_key, AES_128_KEY_LEN, AAD, 
         aad_len, IV, iv_len, auth_tag_out, GCM_BLOCK_SIZE);
 }
-uint8_t * aes_128_gcm_dec(const uint8_t * ciphertext, size_t data_len, const uint8_t * AAD, size_t aad_len, const uint8_t * IV, size_t iv_len, const uint8_t * auth_tag_in, const uint8_t block_cipher_key[AES_128_KEY_LEN]) {
+__attribute__((warn_unused_result)) uint8_t * aes_128_gcm_dec(const uint8_t * ciphertext, size_t data_len, const uint8_t * AAD, size_t aad_len, const uint8_t * IV, size_t iv_len, const uint8_t * auth_tag_in, const uint8_t block_cipher_key[AES_128_KEY_LEN]) {
     return aes_gcm_authenticate_decryption_internal(ciphertext, data_len, block_cipher_key, AES_128_KEY_LEN, AAD, aad_len, IV, iv_len, auth_tag_in, GCM_BLOCK_SIZE);
 }
 
-uint8_t * aes_192_gcm_enc(const uint8_t * plain_data, size_t data_len, const uint8_t * AAD, size_t aad_len, const uint8_t * IV, size_t iv_len, uint8_t auth_tag_out[GCM_BLOCK_SIZE], const uint8_t block_cipher_key[AES_192_KEY_LEN]) {
+__attribute__((warn_unused_result)) uint8_t * aes_192_gcm_enc(const uint8_t * plain_data, size_t data_len, const uint8_t * AAD, size_t aad_len, const uint8_t * IV, size_t iv_len, uint8_t auth_tag_out[GCM_BLOCK_SIZE], const uint8_t block_cipher_key[AES_192_KEY_LEN]) {
     return aes_gcm_authenticate_encryption_internal(plain_data, data_len, block_cipher_key, AES_192_KEY_LEN, AAD, 
         aad_len, IV, iv_len, auth_tag_out, GCM_BLOCK_SIZE);
 }
-uint8_t * aes_192_gcm_dec(const uint8_t * ciphertext, size_t data_len, const uint8_t * AAD, size_t aad_len, const uint8_t * IV, size_t iv_len, const uint8_t * auth_tag_in, const uint8_t block_cipher_key[AES_192_KEY_LEN]) {
+__attribute__((warn_unused_result)) uint8_t * aes_192_gcm_dec(const uint8_t * ciphertext, size_t data_len, const uint8_t * AAD, size_t aad_len, const uint8_t * IV, size_t iv_len, const uint8_t * auth_tag_in, const uint8_t block_cipher_key[AES_192_KEY_LEN]) {
     return aes_gcm_authenticate_decryption_internal(ciphertext, data_len, block_cipher_key, AES_192_KEY_LEN, AAD, aad_len, IV, iv_len, auth_tag_in, GCM_BLOCK_SIZE);
 }
-uint8_t * aes_256_gcm_enc(const uint8_t * plain_data, size_t data_len, const uint8_t * AAD, size_t aad_len, const uint8_t * IV, size_t iv_len, uint8_t auth_tag_out[GCM_BLOCK_SIZE], const uint8_t block_cipher_key[AES_256_KEY_LEN]) {
+__attribute__((warn_unused_result)) uint8_t * aes_256_gcm_enc(const uint8_t * plain_data, size_t data_len, const uint8_t * AAD, size_t aad_len, const uint8_t * IV, size_t iv_len, uint8_t auth_tag_out[GCM_BLOCK_SIZE], const uint8_t block_cipher_key[AES_256_KEY_LEN]) {
     return aes_gcm_authenticate_encryption_internal(plain_data, data_len, block_cipher_key, AES_256_KEY_LEN, AAD, 
         aad_len, IV, iv_len, auth_tag_out, GCM_BLOCK_SIZE);
 }
-uint8_t * aes_256_gcm_dec(const uint8_t * ciphertext, size_t data_len, const uint8_t * AAD, size_t aad_len, const uint8_t * IV, size_t iv_len, const uint8_t * auth_tag_in, const uint8_t block_cipher_key[AES_256_KEY_LEN]) {
+__attribute__((warn_unused_result)) uint8_t * aes_256_gcm_dec(const uint8_t * ciphertext, size_t data_len, const uint8_t * AAD, size_t aad_len, const uint8_t * IV, size_t iv_len, const uint8_t * auth_tag_in, const uint8_t block_cipher_key[AES_256_KEY_LEN]) {
         return aes_gcm_authenticate_decryption_internal(ciphertext, data_len, block_cipher_key, AES_256_KEY_LEN, AAD, aad_len, IV, iv_len, auth_tag_in, GCM_BLOCK_SIZE);
 }
