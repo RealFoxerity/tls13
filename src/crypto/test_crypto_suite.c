@@ -459,6 +459,22 @@ int main() {
     free(code);
     printf("\nE:    1090f043a91a1b50054e75d54fcb5e1a5309cb77a0bafa2669cbf9c75fa810fe\n");
 
+    printf("HMAC SHA-384 test, string \"Hello\", key \"TLS\", no null bytes, expected:\nHMAC: ");
+    code = hmac(HMAC_SHA2_384, (unsigned char *)"TLS", 3, (unsigned char *)"Hello", 5);
+    for (int i = 0; i < SHA384_HASH_BYTES; i++) {
+        printf("%02hhx", code[i]);
+    }
+    free(code);
+    printf("\nE:    d7f8a170daa814b626900f480844901f6026393ecc5302e0af42c75818cd935434a6142143c6b2231eff319d44fb3352\n");
+
+    printf("HMAC SHA-384 test, null block, null key - TLS early secret no PSK, expected:\nHMAC: ");
+    code = hmac(HMAC_SHA2_384, NULL, 0, (unsigned char *)"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00", SHA384_HASH_BYTES);
+    for (int i = 0; i < SHA384_HASH_BYTES; i++) {
+        printf("%02hhx", code[i]);
+    }
+    free(code);
+    printf("\nE:    7ee8206f5570023e6dc7519eb1073bc4e791ad37b5c382aa10ba18e2357e716971f9362f2c2fe2a76bfd78dfec4ea9b5\n");
+
     printf("Plain HKDF SHA-256 test, rfc 5869 test case 1\n\tPRK: ");
     struct prk plain_hkdf_prk = hkdf_extract(HMAC_SHA2_256, plain_hkdf_salt, sizeof(plain_hkdf_salt)-1, plain_hkdf_ikm, sizeof(plain_hkdf_ikm) - 1);
     for (int i = 0; i < plain_hkdf_prk.prk_len; i++) {

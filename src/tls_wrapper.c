@@ -60,7 +60,9 @@ unsigned char * tls_packet_buffer = NULL;
 uint64_t recv_message_counter = 0, txd_message_counter = 0;
 enum tls_state current_state = TS_SETTING_UP_INTERACTIVE;
 
+void cleanup();
 void free_tls_metadata() {
+    cleanup();
     free(target_server_name);
     free(client_key_share.key_exchange.data);
     free(tls_packet_buffer);
@@ -162,6 +164,7 @@ char ssl_wrapper(int socket_fd) {
     close(inner_fd);
     close(socket_fd);
     free_tls_metadata();
+    
     return (errno == EINTR?EXIT_SUCCESS:EXIT_FAILURE);
 }
 
@@ -332,12 +335,14 @@ int parse_extensions(struct ClientHello CH) { // TODO: parse extentions .... :D
         switch (htons(((short*)CH.cipher_suites.data)[i])) {
             case TLS_AES_256_GCM_SHA384:
                 chosen_cipher_suite = TLS_AES_256_GCM_SHA384;
+                goto have_aes256; // we prefer aes256-gcm-sha384
                 break;
             case TLS_AES_128_GCM_SHA256:
                 chosen_cipher_suite = TLS_AES_128_GCM_SHA256;
                 break;
         }
     }
+    have_aes256:
 
     if (chosen_signature_algo == 0) {
         printf("No mutually supported signature algorithms\n");
@@ -445,19 +450,38 @@ static void generate_traffic_keys(Vector client_secret, Vector server_secret) {
     server_write_iv.len = iv_len;
 
     recv_message_counter = txd_message_counter = 0;
+
+    fprintf(stderr, "New traffic keys:\nserver_write_key: ");
+    for (int i = 0; i < server_write_key.len; i++) {
+        fprintf(stderr, "%02hhx ", ((unsigned char *)server_write_key.data)[i]);
+    }
+    fprintf(stderr, "\nserver_write_iv: ");
+    for (int i = 0; i < server_write_iv.len; i++) {
+        fprintf(stderr, "%02hhx ", ((unsigned char *)server_write_iv.data)[i]);
+    }
+
+    fprintf(stderr, "\nclient_write_key: ");
+    for (int i = 0; i < client_write_key.len; i++) {
+        fprintf(stderr, "%02hhx ", ((unsigned char *)client_write_key.data)[i]);
+    }
+    fprintf(stderr, "\nclient_write_iv: ");
+    for (int i = 0; i < client_write_iv.len; i++) {
+        fprintf(stderr, "%02hhx ", ((unsigned char *)client_write_iv.data)[i]);
+    }
 }
 
 // TODO: if/when implementing PSK change first HKDF-extract to not use an empty block for IKM for PSK
 static void generate_server_secrets() { // has to be a different function since it requires the transcript hash to be up-to-date
     unsigned char * null_block = NULL;
     unsigned char * null_hash = NULL;
-    unsigned char * transcript_hash;
+    unsigned char * transcript_hash  = NULL;
 
     size_t hash_len;
     enum hmac_supported_hashes hash_type;
 
     switch (chosen_cipher_suite) {
         case TLS_AES_128_GCM_SHA256:
+            fprintf(stderr, "Generating keys for AES-128-GCM-SHA256\n");
             hash_len = SHA256_HASH_BYTES;
             hash_type = HMAC_SHA2_256;
             null_hash = malloc(SHA256_HASH_BYTES);
@@ -469,6 +493,7 @@ static void generate_server_secrets() { // has to be a different function since 
             sha256_finalize(&transcript_hash_ctx, transcript_hash);
             break;
         case TLS_AES_256_GCM_SHA384:
+            fprintf(stderr, "Generating keys for AES-256-GCM-SHA384\n");
             hash_len = SHA384_HASH_BYTES;
             hash_type = HMAC_SHA2_384;
             null_hash = malloc(SHA384_HASH_BYTES);
@@ -486,7 +511,7 @@ static void generate_server_secrets() { // has to be a different function since 
     null_block = calloc(hash_len, 1);
     assert(null_block);
 
-    early_secret = hkdf_extract(hash_type, null_block, hash_len, null_block, hash_len);
+    early_secret = hkdf_extract(hash_type, NULL, 0, null_block, hash_len);
     assert(early_secret.prk);
 
     // for PSK also
@@ -494,21 +519,25 @@ static void generate_server_secrets() { // has to be a different function since 
     // derive client early traffic secret
     // derive early exporter master secret
 
-    unsigned char * hs_ikm = hkdf_expand_label(hash_type, early_secret, (unsigned char *)"derived", 7, NULL, 0, hash_len);
+    unsigned char * hs_ikm = hkdf_expand_label(hash_type, early_secret, (unsigned char *)"derived", 7, null_hash, hash_len, hash_len);
+    assert(hs_ikm);
 
-    handshake_secret = hkdf_extract(hash_type, master_key.data, master_key.len, hs_ikm, hash_len);
+    handshake_secret = hkdf_extract(hash_type, hs_ikm, hash_len, master_key.data, master_key.len);
     assert(handshake_secret.prk);
 
     client_hs_traffic_secret.data = hkdf_expand_label(hash_type, handshake_secret, (unsigned char *)"c hs traffic", 12, transcript_hash, hash_len, hash_len);    
+    assert(client_hs_traffic_secret.data);
     client_hs_traffic_secret.len = hash_len;
 
     server_hs_traffic_secret.data = hkdf_expand_label(hash_type, handshake_secret, (unsigned char *)"s hs traffic", 12, transcript_hash, hash_len, hash_len);    
+    assert(server_hs_traffic_secret.data);
     server_hs_traffic_secret.len = hash_len;
 
-    unsigned char * ms_ikm = hkdf_expand_label(hash_type, handshake_secret, (unsigned char *)"derived", 7, NULL, 0, hash_len);
+    unsigned char * ms_ikm = hkdf_expand_label(hash_type, handshake_secret, (unsigned char *)"derived", 7, null_hash, hash_len, hash_len);
+    assert(ms_ikm);
 
-    master_secret = hkdf_extract(hash_type, null_block, hash_len, ms_ikm, hash_len);
-
+    master_secret = hkdf_extract(hash_type, ms_ikm, hash_len, null_block, hash_len);
+    assert(master_secret.prk);
     // for PSK
     // derive exporter master key
     // for 0-rtt
@@ -518,6 +547,10 @@ static void generate_server_secrets() { // has to be a different function since 
     fprintf(stderr, "Early secret: ");
     for (int i = 0; i < early_secret.prk_len; i++) {
         fprintf(stderr, "%02hhx ", early_secret.prk[i]);
+    }
+    fprintf(stderr, "\nDerived secret: ");
+    for (int i = 0; i < hash_len; i++) {
+        fprintf(stderr, "%02hhx ", hs_ikm[i]);
     }
     fprintf(stderr, "\nHandshake secret: ");
     for (int i = 0; i < handshake_secret.prk_len; i++) {
@@ -539,6 +572,7 @@ static void generate_server_secrets() { // has to be a different function since 
     free(hs_ikm);
     free(ms_ikm);
     free(null_block);
+    free(null_hash);
     free(transcript_hash);
 }
 
@@ -686,7 +720,7 @@ int construct_server_hello(unsigned char * buffer, size_t prev_record_end_offset
     memcpy(buffer+bufoff, CH.legacy_session_id.data, CH.legacy_session_id.len);
     buffer += CH.legacy_session_id.len;
 
-    *(short*)(buffer+bufoff) = htons(chosen_cipher_suite); // TODO: implement more
+    *(short*)(buffer+bufoff) = htons(chosen_cipher_suite);
     buffer +=2;
 
     buffer[bufoff] = 0; // null (no) compression

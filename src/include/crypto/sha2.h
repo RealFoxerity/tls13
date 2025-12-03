@@ -24,7 +24,7 @@ typedef unsigned __int128 uint128_t;
 
 #define SHA512_MESSAGE_SCHED_LEN 80
 #define SHA512_WORK_VARS 8
-#define SHA384_WORK_VARS 7
+#define SHA384_WORK_VARS 6
 
 #define SHA256_MESSAGE_BLOCK (512)
 #define SHA512_MESSAGE_BLOCK (1024)
