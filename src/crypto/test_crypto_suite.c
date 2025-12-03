@@ -8,6 +8,7 @@
 #include "../include/crypto/hkdf.h"
 #include <assert.h>
 #include <string.h>
+#include <unistd.h>
 
 
 const unsigned char * sha3_expected[] = {
@@ -24,7 +25,8 @@ const unsigned char * sha2_expected[] = {
     (unsigned char *)"2bf42ae199fd97a8d4fa7b09130763dc25a866426a9db0602805e080838116bf429baf77f5c49bc9ea813cb8bcfd61ac",
     (unsigned char *)"4395f6c38267d1d00f62d7ede65bcc63afffe39dc49379166e36559e95f1bffca0d595595f81e498d6ccf320cda3b9ee07d4294012e54760e69c0786795c9be6",
     (unsigned char *)"9630c93173c238023c85fd3ab5d6604340cf81faade0d990ea99961b",
-    (unsigned char *)"a82295b6712fcc648d04a8f918f6e003c12e4ba4ac1c4e0d9c02848fe29b52da"
+    (unsigned char *)"a82295b6712fcc648d04a8f918f6e003c12e4ba4ac1c4e0d9c02848fe29b52da",
+    (unsigned char *)"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" // sha256 of nothing
 };
 
 const unsigned char * aes_data[] = {
@@ -110,6 +112,14 @@ int main() {
         printf("%02hhx", hash[j]);
     }
     printf("\nE: %s\n", sha2_expected[2]);
+
+    memset(hash, 0, SHA256_HASH_BYTES);
+    sha256_sum(hash, NULL, 0);
+    printf("sha256 hash of empty string, expected:\nS: ");
+    for (int j = 0; j < SHA256_HASH_BYTES; j++) {
+        printf("%02hhx", hash[j]);
+    }
+    printf("\nE: %s\n", sha2_expected[7]);
 
     memset(hash, 0, SHA384_HASH_BYTES);
     sha384_sum(hash, (unsigned char *)"HelloTLS", 8);

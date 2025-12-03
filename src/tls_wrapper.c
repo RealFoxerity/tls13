@@ -13,11 +13,15 @@
 
 #include <unistd.h> // close, access
 
+#include "include/crypto/hmac.h"
 #include "include/server.h"
 #include "include/tls.h"
 #include "include/tls_extensions.h"
 #include "include/memstructs.h"
 #include "include/crypto/secp256.h"
+#include "include/crypto/sha2.h"
+#include "include/crypto/hkdf.h"
+#include "include/hkdf_tls.h"
 
 #define MIN(a,b) (a>b?b:a)
 #define MAX(a,b) (a<b?b:a)
@@ -33,7 +37,11 @@ struct KeyShareNode client_key_share = {0}; // includes our chosen algorithm
 struct KeyShareNode server_key_share = {0}; // this and server_ecdhe_keys share the same pointer, free only one
 Keys server_ecdhe_keys = {0}; // private & public keys, get type from client/server_key_share
 
-Vector shared_master_key;
+struct prk early_secret, handshake_secret, master_secret;
+Vector master_key = {0}, server_hs_traffic_secret = {0}, client_hs_traffic_secret = {0}, server_hs_iv = {0}, client_hs_iv = {0};
+Vector server_application_secret_0 = {0}, server_application_iv = {0}, client_application_secret_0 = {0}, client_application_iv = {0};
+
+sha2_ctx_t transcript_hash_ctx;
 
 unsigned short chosen_signature_algo = 0;
 unsigned short chosen_group = 0;
@@ -309,8 +317,13 @@ int parse_extensions(struct ClientHello CH) { // TODO: parse extentions .... :D
     } while ((curr = prev.next) != NULL);
 
     for (int i = 0; i < CH.cipher_suites.len/2; i++) {
-        if (((short*)CH.cipher_suites.data)[i] == htons(TLS_AES_256_GCM_SHA384)) {
-            chosen_cipher_suite = TLS_AES_256_GCM_SHA384;
+        switch (htons(((short*)CH.cipher_suites.data)[i])) {
+            case TLS_AES_256_GCM_SHA384:
+                chosen_cipher_suite = TLS_AES_256_GCM_SHA384;
+                break;
+            case TLS_AES_128_GCM_SHA256:
+                chosen_cipher_suite = TLS_AES_128_GCM_SHA256;
+                break;
         }
     }
 
@@ -364,14 +377,197 @@ static int generate_server_keys() {
     server_key_share.key_exchange.len = SECP256_PUBKEY_SIZE;
     server_key_share.key_exchange.data = keys.public_key;
 
-    shared_master_key.len = SECP256_PRIVKEY_SIZE;
-    shared_master_key.data = secp256_get_shared_key(server_ecdhe_keys.private_key.data, client_key_share.key_exchange.data);
-    assert(shared_master_key.data);
+    master_key.len = SECP256_PRIVKEY_SIZE;
+    master_key.data = secp256_get_shared_key(server_ecdhe_keys.private_key.data, client_key_share.key_exchange.data);
+    assert(master_key.data);
 
     return 0;
 }
 
-int construct_server_hello(unsigned char * buffer, size_t len, struct ClientHello CH, char is_retry_request) {
+// TODO: if/when implementing PSK change first HKDF-extract to not use an empty block for IKM for PSK
+static void generate_server_secrets() { // has to be a different function since it requires the transcript hash to be up-to-date
+    unsigned char * null_block = NULL;
+    unsigned char * null_hash = NULL;
+    unsigned char * transcript_hash;
+
+    size_t hash_len;
+    enum hmac_supported_hashes hash_type;
+
+    switch (chosen_cipher_suite) {
+        case TLS_AES_128_GCM_SHA256:
+            hash_len = SHA256_HASH_BYTES;
+            hash_type = HMAC_SHA2_256;
+            null_hash = malloc(SHA256_HASH_BYTES);
+            assert(null_hash);
+            sha256_sum(null_hash, NULL, 0);
+
+            transcript_hash = malloc(SHA256_HASH_BYTES);
+            assert(transcript_hash);
+            sha256_finalize(&transcript_hash_ctx, transcript_hash);
+            break;
+        case TLS_AES_256_GCM_SHA384:
+            hash_len = SHA384_HASH_BYTES;
+            hash_type = HMAC_SHA2_384;
+            null_hash = malloc(SHA384_HASH_BYTES);
+            assert(null_hash);
+            sha384_sum(null_hash, NULL, 0);
+
+            transcript_hash = malloc(SHA384_HASH_BYTES);
+            assert(transcript_hash);
+            sha384_finalize(&transcript_hash_ctx, transcript_hash);
+            break;
+        default:
+            fprintf(stderr, "Chosen unsupported cipher suite (how did we get here?)\n");
+            exit(-AD_HANDSHAKE_FAILURE);
+    }
+    null_block = calloc(hash_len, 1);
+    assert(null_block);
+
+    early_secret = hkdf_extract(hash_type, null_block, hash_len, null_block, hash_len);
+    assert(early_secret.prk);
+
+    // for PSK also
+    // derive binder key
+    // derive client early traffic secret
+    // derive early exporter master secret
+
+    unsigned char * hs_ikm = hkdf_expand_label(hash_type, early_secret, (unsigned char *)"derived", 7, NULL, 0, hash_len);
+
+    handshake_secret = hkdf_extract(hash_type, master_key.data, master_key.len, hs_ikm, hash_len);
+    assert(handshake_secret.prk);
+
+    client_hs_traffic_secret.data = hkdf_expand_label(hash_type, handshake_secret, (unsigned char *)"c hs traffic", 12, transcript_hash, hash_len, hash_len);    
+    client_hs_traffic_secret.len = hash_len;
+
+    server_hs_traffic_secret.data = hkdf_expand_label(hash_type, handshake_secret, (unsigned char *)"s hs traffic", 12, transcript_hash, hash_len, hash_len);    
+    server_hs_traffic_secret.len = hash_len;
+
+    unsigned char * ms_ikm = hkdf_expand_label(hash_type, handshake_secret, (unsigned char *)"derived", 7, NULL, 0, hash_len);
+
+    master_secret = hkdf_extract(hash_type, null_block, hash_len, ms_ikm, hash_len);
+
+    // for PSK
+    // derive exporter master key
+    // for 0-rtt
+    // derive resumption master key
+
+    fprintf(stderr, "Generated server secrets:\n");
+    fprintf(stderr, "Early secret: ");
+    for (int i = 0; i < early_secret.prk_len; i++) {
+        fprintf(stderr, "%02hhx ", early_secret.prk[i]);
+    }
+    fprintf(stderr, "\nHandshake secret: ");
+    for (int i = 0; i < handshake_secret.prk_len; i++) {
+        fprintf(stderr, "%02hhx ", handshake_secret.prk[i]);
+    }
+    fprintf(stderr, "\nMaster secret: ");
+    for (int i = 0; i < master_secret.prk_len; i++) {
+        fprintf(stderr, "%02hhx ", master_secret.prk[i]);
+    }
+    fprintf(stderr, "\n\nClient handshake traffic secret: ");
+    for (int i = 0; i < client_hs_traffic_secret.len; i++) {
+        fprintf(stderr, "%02hhx ", ((unsigned char *)client_hs_traffic_secret.data)[i]);
+    }
+    fprintf(stderr, "\nServer handshake traffic secret: ");
+    for (int i = 0; i < server_hs_traffic_secret.len; i++) {
+        fprintf(stderr, "%02hhx ", ((unsigned char *)server_hs_traffic_secret.data)[i]);
+    }
+    fprintf(stderr, "\n\n");
+    free(hs_ikm);
+    free(ms_ikm);
+    free(null_block);
+    free(transcript_hash);
+}
+
+static void generate_server_app_secrets() { // has to be done after Finalize message
+    assert(master_secret.prk);
+    unsigned char * null_hash = NULL;
+    unsigned char * transcript_hash;
+
+    size_t hash_len;
+    enum hmac_supported_hashes hash_type;
+
+    switch (chosen_cipher_suite) {
+        case TLS_AES_128_GCM_SHA256:
+            hash_len = SHA256_HASH_BYTES;
+            hash_type = HMAC_SHA2_256;
+            null_hash = malloc(SHA256_HASH_BYTES);
+            assert(null_hash);
+            sha256_sum(null_hash, NULL, 0);
+
+            transcript_hash = malloc(SHA256_HASH_BYTES);
+            assert(transcript_hash);
+            sha256_finalize(&transcript_hash_ctx, transcript_hash);
+            break;
+        case TLS_AES_256_GCM_SHA384:
+            hash_len = SHA384_HASH_BYTES;
+            hash_type = HMAC_SHA2_384;
+            null_hash = malloc(SHA384_HASH_BYTES);
+            assert(null_hash);
+            sha384_sum(null_hash, NULL, 0);
+
+            transcript_hash = malloc(SHA384_HASH_BYTES);
+            assert(transcript_hash);
+            sha384_finalize(&transcript_hash_ctx, transcript_hash);
+            break;
+        default:
+            fprintf(stderr, "Chosen unsupported cipher suite (how did we get here?)\n");
+            exit(-AD_HANDSHAKE_FAILURE);
+    }
+
+    client_application_secret_0.data = hkdf_expand_label(hash_type, master_secret, (unsigned char *)"c ap traffic", 12, transcript_hash, hash_len, hash_len);    
+    client_application_secret_0.len = hash_len;
+
+    server_application_secret_0.data = hkdf_expand_label(hash_type, master_secret, (unsigned char *)"s ap traffic", 12, transcript_hash, hash_len, hash_len);    
+    server_application_secret_0.len = hash_len;
+    free(null_hash);
+    free(transcript_hash);
+}
+
+int construct_server_hello(unsigned char * buffer, size_t prev_record_end_offset, size_t prev_len, size_t len, struct ClientHello CH, char is_retry_request) {
+    if (/* is_retry_request && */ chosen_cipher_suite == 0) { // implicitally is_retry_request since otherwise ccs wouldn't be 0
+        chosen_cipher_suite = TLS_AES_256_GCM_SHA384;
+    }
+        
+    if (chosen_group == 0) {
+        chosen_group = NG_SECP256R1;
+    }
+
+    if (is_retry_request) {
+        unsigned char * special_mes = NULL;
+        switch (chosen_cipher_suite) {
+            case TLS_AES_128_GCM_SHA256:
+                sha256_init(&transcript_hash_ctx);
+                sha256_update(&transcript_hash_ctx, buffer + prev_record_end_offset, prev_len);
+                
+                // see https://www.rfc-editor.org/rfc/rfc8446#section-4.4.1
+                special_mes = calloc(sizeof(TLS_handshake) + SHA256_HASH_BYTES, 1);
+                assert(special_mes);
+                (*(TLS_handshake*)special_mes).msg_type = HT_MESSAGE_HASH;
+                (*(TLS_handshake*)special_mes).length[2] = SHA256_HASH_BYTES;
+                sha256_finalize(&transcript_hash_ctx, special_mes + sizeof(TLS_handshake));
+                sha256_init(&transcript_hash_ctx);
+                sha256_update(&transcript_hash_ctx, special_mes, sizeof(special_mes));
+                break;
+            case TLS_AES_256_GCM_SHA384:
+                sha384_init(&transcript_hash_ctx);
+                sha384_update(&transcript_hash_ctx, buffer + prev_record_end_offset, prev_len);
+
+                special_mes = calloc(sizeof(TLS_handshake) + SHA384_HASH_BYTES, 1);
+                assert(special_mes);
+                (*(TLS_handshake*)special_mes).msg_type = HT_MESSAGE_HASH;
+                (*(TLS_handshake*)special_mes).length[2] = SHA384_HASH_BYTES;
+                sha384_finalize(&transcript_hash_ctx, special_mes + sizeof(TLS_handshake));
+                sha384_init(&transcript_hash_ctx);
+                sha384_update(&transcript_hash_ctx, special_mes, sizeof(special_mes));
+                break;
+            default:
+                fprintf(stderr, "Chosen unsupported cipher suite (how did we get here?)\n");
+                return -AD_HANDSHAKE_FAILURE;
+        }
+        free(special_mes);
+    }
+    
     size_t extensions_len = 0;  // we dont't have any encrypted extensions
     //must respond to supported_versions, key_share
     extensions_len += 2+2+2; // 2 supported versions extension id, 2 size, 2 supported version
@@ -427,8 +623,7 @@ int construct_server_hello(unsigned char * buffer, size_t len, struct ClientHell
     memcpy(buffer+bufoff, CH.legacy_session_id.data, CH.legacy_session_id.len);
     buffer += CH.legacy_session_id.len;
 
-    assert(is_retry_request || (chosen_cipher_suite != 0));
-    *(short*)(buffer+bufoff) = htons(chosen_cipher_suite == 0?TLS_AES_256_GCM_SHA384:chosen_cipher_suite); // TODO: implement more
+    *(short*)(buffer+bufoff) = htons(chosen_cipher_suite); // TODO: implement more
     buffer +=2;
 
     buffer[bufoff] = 0; // null (no) compression
@@ -452,8 +647,8 @@ int construct_server_hello(unsigned char * buffer, size_t len, struct ClientHell
 
     *(short*)&(buffer[bufoff]) = htons(2+(is_retry_request==0?2+client_key_share.key_exchange.len:0)); // 2 for group, 2 for vector len
     bufoff +=2;
-    
-    *(short*)&(buffer[bufoff]) = htons(is_retry_request?NG_SECP256R1:client_key_share.group);
+
+    *(short*)&(buffer[bufoff]) = htons(is_retry_request?chosen_group:client_key_share.group);
     bufoff +=2;
     
     if (!is_retry_request) {
@@ -478,14 +673,33 @@ int construct_server_hello(unsigned char * buffer, size_t len, struct ClientHell
     //    
     //    *(short*)&(buffer[bufoff]) = htons(SS_ECDSA_SECP256R1_SHA256);
     //}
+
+    switch (chosen_cipher_suite) {
+        case TLS_AES_128_GCM_SHA256:
+            sha256_update(&transcript_hash_ctx, buffer + sizeof(TLS_plainttext_header), final_size-sizeof(TLS_plainttext_header));
+            break;
+        case TLS_AES_256_GCM_SHA384:
+            sha384_update(&transcript_hash_ctx, buffer + sizeof(TLS_plainttext_header), final_size-sizeof(TLS_plainttext_header));
+            break;
+        default:
+            fprintf(stderr, "Chosen unsupported cipher suite (how did we get here?)\n");
+            return -AD_HANDSHAKE_FAILURE;
+    }
+    if (!is_retry_request) {
+        generate_server_secrets();
+    }
     return final_size;
 }
 
-int handshake_tls(unsigned char * buffer, size_t message_offset, size_t len) {
-    static char trying_helloretry = 0; // only case in which renegotiation is allowed
+int handshake_tls(unsigned char * buffer, size_t record_end_offset, size_t len) {
+    // see https://www.rfc-editor.org/rfc/rfc8446#section-4.4.1 for transcript hash reasoning 
+    static char trying_helloretry = 0; // only case in which renegotiation is allowed, 1 = last message was hello retry request, 2 = already tried hello retry request
     int ret;
 
     TLS_handshake handshake = {0};
+
+    size_t message_offset = record_end_offset; // for transcript hash - record layer is not a part of the transcript
+
     memcpy(&handshake, buffer + message_offset, sizeof(TLS_handshake));
     int handshake_len = (handshake.length[0] << 16) + (handshake.length[1] << 8) + handshake.length[2];
 
@@ -498,8 +712,8 @@ int handshake_tls(unsigned char * buffer, size_t message_offset, size_t len) {
 
     message_offset += sizeof(TLS_handshake);
 
-    if ((message_counter == 1 || trying_helloretry) && handshake.msg_type == HT_CLIENT_HELLO) { // start of tls
-        if (trying_helloretry) trying_helloretry = 0;
+    if ((message_counter == 1 || trying_helloretry == 1) && handshake.msg_type == HT_CLIENT_HELLO) { // start of tls
+        if (trying_helloretry == 1) trying_helloretry = 2;
 
         struct ClientHello CH_packet = {0};
         memcpy(&CH_packet, buffer+message_offset, sizeof(CH_packet.legacy_version) + TLS_RANDOM_LEN); // 34 for legacy_version + random, rest are dynamic
@@ -516,7 +730,7 @@ int handshake_tls(unsigned char * buffer, size_t message_offset, size_t len) {
             parse_client_hello(buffer+message_offset, handshake_len - sizeof(TLS_handshake), &CH_packet);
             
             if ((ret = parse_extensions(CH_packet)) == -AD_HANDSHAKE_FAILURE) {
-                if (chosen_signature_algo == 0) goto CH_fail; // signature algorithms is nonrenegoatiable
+                if (chosen_signature_algo == 0 || trying_helloretry == 2) goto CH_fail; // signature algorithms is nonrenegoatiable, cannot send hello retry request >1 times (see https://www.rfc-editor.org/rfc/rfc8446#section-4.1.4)
                 fprintf(stderr, "Failed to find mutual parameters, trying helloretryrequest\n");
                 trying_helloretry = 1;
             } else if (ret != 1) {
@@ -525,13 +739,31 @@ int handshake_tls(unsigned char * buffer, size_t message_offset, size_t len) {
                 free_client_hello(CH_packet);
                 return ret;
             }
-            int out = construct_server_hello(buffer, len, CH_packet, (ret != 1)?1:0);
-            if (ret == 1) current_state = TS_SETTING_UP_SERVER_SIDE;
+            if (ret == 1) {
+                current_state = TS_SETTING_UP_SERVER_SIDE;
+                switch (chosen_cipher_suite) {
+                    case TLS_AES_128_GCM_SHA256:
+                        sha256_init(&transcript_hash_ctx);
+                        sha256_update(&transcript_hash_ctx, buffer + record_end_offset, len);
+                        break;
+                    case TLS_AES_256_GCM_SHA384:
+                        sha384_init(&transcript_hash_ctx);
+                        sha384_update(&transcript_hash_ctx, buffer + record_end_offset, len);
+                        break;
+                    default:
+                        fprintf(stderr, "Chosen unsupported cipher suite (how did we get here?)\n");
+                        return -AD_HANDSHAKE_FAILURE;
+                }
+            }
+            int out = construct_server_hello(buffer, record_end_offset, len, MAX_REQUEST_SIZE, CH_packet, trying_helloretry == 1);
             free_client_hello(CH_packet);
             return out;
         }
     } else if (handshake.msg_type == HT_CLIENT_HELLO) {
         fprintf(stderr, "Recieved renegotiation - invalid for TLS v1.3, closing connection!\n");
+        return -AD_UNEXPECTED_MESSAGE;
+    } else if (handshake.msg_type == HT_SERVER_HELLO) { // assuming the client sent a helloretryrequest
+        fprintf(stderr, "Client sent helloretryrequest, not sure if that's even allowed (only mentioned in one sentence in 4.2.8), but not something we support anyway, closing connection\n");
         return -AD_UNEXPECTED_MESSAGE;
     } else {
         return -AD_DECODE_ERROR;
@@ -618,5 +850,16 @@ void cleanup() {
     free(target_server_name);
     free(server_ecdhe_keys.private_key.data);
     free(server_ecdhe_keys.public_key.data);
-    free(shared_master_key.data);
+    free(master_key.data);
+    hkdf_free(early_secret);
+    hkdf_free(handshake_secret);
+    hkdf_free(master_secret);
+    free(server_hs_traffic_secret.data);
+    free(client_hs_traffic_secret.data);
+    free(server_hs_iv.data); 
+    free(client_hs_iv.data);
+    free(server_application_secret_0.data);
+    free(server_application_iv.data);
+    free(client_application_secret_0.data);
+    free(client_application_iv.data);
 }
