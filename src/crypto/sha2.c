@@ -252,7 +252,7 @@ void sha256_update_internal(sha2_ctx_t * ctx, const unsigned char * input, size_
     memcpy(&ctx->sha256.temp_buf[ctx->sha256.temp_buf_end], input, SHA256_MESSAGE_BLOCK/8  - ctx->sha256.temp_buf_end);
     input_len -= SHA256_MESSAGE_BLOCK/8  - ctx->sha256.temp_buf_end;
     input += SHA256_MESSAGE_BLOCK/8  - ctx->sha256.temp_buf_end;
-    size_t chunks = 1 + input_len/SHA256_MESSAGE_BLOCK/8;
+    size_t chunks = 1 + input_len/(SHA256_MESSAGE_BLOCK/8);
 
     for (size_t i = 0; i < chunks; i++) {
         memset(message_schedule, 0, sizeof(message_schedule));
@@ -294,9 +294,9 @@ void sha256_update_internal(sha2_ctx_t * ctx, const unsigned char * input, size_
         ctx->sha256.work_vars[7] += h;
 
         if (i != chunks - 1) {
-            memcpy(&ctx->sha256.temp_buf, &input[(i-1)*SHA256_MESSAGE_BLOCK/8], SHA256_MESSAGE_BLOCK/8);
+            memcpy(ctx->sha256.temp_buf, &input[i*(SHA256_MESSAGE_BLOCK/8)], SHA256_MESSAGE_BLOCK/8);
         } else {
-            memcpy(&ctx->sha256.temp_buf, &input[i*SHA256_MESSAGE_BLOCK/8], input_len % (SHA256_MESSAGE_BLOCK / 8));
+            memcpy(ctx->sha256.temp_buf, &input[i*(SHA256_MESSAGE_BLOCK/8)], input_len % (SHA256_MESSAGE_BLOCK / 8));
             ctx->sha256.temp_buf_end = input_len % (SHA256_MESSAGE_BLOCK / 8);
         }
     }
@@ -333,7 +333,7 @@ void sha512_update_internal(sha2_ctx_t * ctx, const unsigned char * input, size_
     memcpy(&ctx->sha512.temp_buf[ctx->sha512.temp_buf_end], input, SHA512_MESSAGE_BLOCK/8  - ctx->sha512.temp_buf_end);
     input_len -= SHA512_MESSAGE_BLOCK/8  - ctx->sha512.temp_buf_end;
     input += SHA512_MESSAGE_BLOCK/8  - ctx->sha512.temp_buf_end;
-    size_t chunks = 1 + input_len/SHA512_MESSAGE_BLOCK/8;
+    size_t chunks = 1 + input_len/(SHA512_MESSAGE_BLOCK/8);
 
     for (size_t i = 0; i < chunks; i++) {
         memset(message_schedule, 0, sizeof(message_schedule));
@@ -375,9 +375,9 @@ void sha512_update_internal(sha2_ctx_t * ctx, const unsigned char * input, size_
         ctx->sha512.work_vars[7] += h;
 
         if (i != chunks - 1) {
-            memcpy(&ctx->sha512.temp_buf, &input[(i-1)*SHA512_MESSAGE_BLOCK/8], SHA512_MESSAGE_BLOCK/8);
+            memcpy(ctx->sha512.temp_buf, &input[i*(SHA512_MESSAGE_BLOCK/8)], SHA512_MESSAGE_BLOCK/8);
         } else {
-            memcpy(&ctx->sha512.temp_buf, &input[i*SHA512_MESSAGE_BLOCK/8], input_len % (SHA512_MESSAGE_BLOCK / 8));
+            memcpy(ctx->sha512.temp_buf, &input[i*(SHA512_MESSAGE_BLOCK/8)], input_len % (SHA512_MESSAGE_BLOCK / 8));
             ctx->sha512.temp_buf_end = input_len % (SHA512_MESSAGE_BLOCK / 8);
         }
     }
