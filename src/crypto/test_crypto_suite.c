@@ -6,6 +6,7 @@
 #include "../include/crypto/aes.h"
 #include "../include/crypto/hmac.h"
 #include "../include/crypto/hkdf.h"
+#include "../include/crypto/secp256.h"
 #include <assert.h>
 #include <string.h>
 #include <unistd.h>
@@ -48,6 +49,7 @@ const unsigned char tls13_xargs_org_test_client_hello[] = "\x01\x00\x00\xf4\x03\
 const unsigned char tls13_xargs_org_test_server_hello[] = "\x02\x00\x00\x76\x03\x03\x70\x71\x72\x73\x74\x75\x76\x77\x78\x79\x7a\x7b\x7c\x7d\x7e\x7f\x80\x81\x82\x83\x84\x85\x86\x87\x88\x89\x8a\x8b\x8c\x8d\x8e\x8f\x20\xe0\xe1\xe2\xe3\xe4\xe5\xe6\xe7\xe8\xe9\xea\xeb\xec\xed\xee\xef\xf0\xf1\xf2\xf3\xf4\xf5\xf6\xf7\xf8\xf9\xfa\xfb\xfc\xfd\xfe\xff\x13\x02\x00\x00\x2e\x00\x2b\x00\x02\x03\x04\x00\x33\x00\x24\x00\x1d\x00\x20\x9f\xd7\xad\x6d\xcf\xf4\x29\x8d\xd3\xf9\x6d\x5b\x1b\x2a\xf9\x10\xa0\x53\x5b\x14\x88\xd7\xf8\xfa\xbb\x34\x9a\x98\x28\x80\xb6\x15";
 
 const char tls13_xargs_org_test_transcript_hash[] = "e05f64fcd082bdb0dce473adf669c2769f257a1c75a51b7887468b5e0e7a7de4f4d34555112077f16e079019d5a845bd";
+
 #define max(a,b) ((a)>(b)?(a):(b))
 
 int main() {
@@ -504,5 +506,33 @@ int main() {
     }
     printf("\nE: %s\n", tls13_xargs_org_test_transcript_hash);
 
+
+    printf("secp256r1 random keys test, use openssl and/or e.g. https://rtos.dev/tools/ecc to verify\n");
+
+    struct secp_key A, B;
+    A = secp256_gen_public_key();
+    B = secp256_gen_public_key();
+
+    unsigned char * shared_secret = secp256_get_shared_key(A.private_key, B.public_key);
+
+    printf("alice private key: ");
+    for (int i = 0; i < SECP256_PRIVKEY_SIZE; i++) printf("%02hhx", A.private_key[i]);
+    printf("\nalice public key: ");
+    for (int i = 0; i < SECP256_PUBKEY_SIZE; i++) printf("%02hhx", A.public_key[i]);
+
+    printf("\nbob private key: ");
+    for (int i = 0; i < SECP256_PRIVKEY_SIZE; i++) printf("%02hhx", B.private_key[i]);
+    printf("\nbob public key: ");
+    for (int i = 0; i < SECP256_PUBKEY_SIZE; i++) printf("%02hhx", B.public_key[i]);
+
+    printf("\nshared secret: ");
+    for (int i = 0; i < SECP256_PRIVKEY_SIZE; i++) printf("%02hhx", shared_secret[i]);
+
+    free(A.private_key);
+    free(A.public_key);
+    free(B.private_key);
+    free(B.public_key);
+
+    free(shared_secret);
     return 0;
 }
