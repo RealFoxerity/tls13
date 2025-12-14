@@ -60,6 +60,26 @@ unsigned char * tls_packet_buffer = NULL;
 uint64_t recv_message_counter = 0, txd_message_counter = 0;
 enum tls_state current_state = TS_SETTING_UP_INTERACTIVE;
 
+size_t print_hex_buf(const unsigned char * buf, size_t len) {
+    for (size_t i = 0; i < len; i++) {
+        if (i % 16 == 0) {
+            if (i != 0) fprintf(stderr, "\n");
+            fprintf(stderr, "%04lx ", i);
+        }
+        fprintf(stderr, "%02hhx ", buf[i]);
+    }
+    fprintf(stderr, "\n");
+    return len;
+}
+
+#define send(fd, buf, len, fl) {\
+    fprintf(stderr, "Txd:\n");\
+    print_hex_buf(buf, len);\
+    send(fd, buf, len, fl);\
+}
+
+#define recv(fd, buf, len, fl) print_hex_buf(buf, recv(fd, buf, len, fl))
+
 void cleanup();
 void free_tls_metadata() {
     cleanup();
@@ -117,6 +137,7 @@ char ssl_wrapper(int socket_fd) {
         if (FD_ISSET(socket_fd, &set)) { // client sending a message
             recv_message_counter ++;
             FD_SET(inner_fd, &set);
+            fprintf(stderr, "Recv:\n");
             recv_len = recv(socket_fd, tls_packet_buffer, MAX_REQUEST_SIZE, 0);
             if (recv_len == 0) continue; // how?
 
@@ -418,6 +439,7 @@ static int generate_server_keys() {
     for (int i = 0; i < master_key.len; i++) {
         fprintf(stderr, "%02hhx", ((unsigned char*)master_key.data)[i]);
     }
+    fprintf(stderr, "\n");
     return 0;
 }
 
@@ -529,6 +551,11 @@ static void generate_server_secrets() { // has to be a different function since 
             fprintf(stderr, "Chosen unsupported cipher suite (how did we get here?)\n");
             exit(-AD_HANDSHAKE_FAILURE);
     }
+    fprintf(stderr, "Transcript hash: ");
+    for (int i = 0; i < hash_len; i++) {
+        fprintf(stderr, "%02hhx ", transcript_hash[i]);
+    }
+
     null_block = calloc(hash_len, 1);
     assert(null_block);
 
@@ -564,7 +591,7 @@ static void generate_server_secrets() { // has to be a different function since 
     // for 0-rtt
     // derive resumption master key
 
-    fprintf(stderr, "Generated server secrets:\n");
+    fprintf(stderr, "\nGenerated server secrets:\n");
     fprintf(stderr, "Early secret: ");
     for (int i = 0; i < early_secret.prk_len; i++) {
         fprintf(stderr, "%02hhx ", early_secret.prk[i]);
@@ -735,10 +762,10 @@ int construct_server_hello(unsigned char * buffer, size_t len, struct ClientHell
     bufoff ++;
 
     memcpy(buffer+bufoff, CH.legacy_session_id.data, CH.legacy_session_id.len);
-    buffer += CH.legacy_session_id.len;
+    bufoff += CH.legacy_session_id.len;
 
     *(short*)(buffer+bufoff) = htons(chosen_cipher_suite);
-    buffer +=2;
+    bufoff +=2;
 
     buffer[bufoff] = 0; // null (no) compression
     bufoff ++;
@@ -794,6 +821,7 @@ int construct_server_hello(unsigned char * buffer, size_t len, struct ClientHell
             break;
         case TLS_AES_256_GCM_SHA384:
             sha384_update(&transcript_hash_ctx, buffer + sizeof(TLS_record_header), final_size-sizeof(TLS_record_header));
+            print_hex_buf(buffer+sizeof(TLS_record_header), final_size - sizeof(TLS_record_header));
             break;
         default:
             fprintf(stderr, "Chosen unsupported cipher suite (how did we get here?)\n");
@@ -938,7 +966,7 @@ int encrypt_tls_packet(unsigned char original_packet_type, unsigned char * restr
             // https://www.rfc-editor.org/rfc/rfc8446#section-5.3
             nonce = calloc(AES_GCM_DEFAULT_IV_LEN, 1); // should be max of 8 or N_MIN (in this case AES_GCM_DEFAULT_IV_LEN since AES-GCM takes any length)
             assert(nonce);
-            *(uint64_t*)(nonce + AES_GCM_DEFAULT_IV_LEN - sizeof(uint64_t)) = htobe64(txd_message_counter-1); // network byte order to be exact, no such thing as htonll, -1 because we have a counter, nonce requires an index
+            *(uint64_t*)(nonce + AES_GCM_DEFAULT_IV_LEN - sizeof(uint64_t)) = htobe64(txd_message_counter); // network byte order to be exact, no such thing as htonll
             for (int i = 0; i < AES_GCM_DEFAULT_IV_LEN; i++) {
                 nonce[i] ^= ((uint8_t *)(server_write_iv.data))[i];
             }
@@ -976,12 +1004,6 @@ int decrypt_tls(unsigned char* buffer, size_t len) { // TODO: implement alerts, 
         fprintf(stderr, "Recieved packet too short to be a valid TLS message (size was %lu)\n", len);
         return -AD_DECODE_ERROR;
     }
-    
-    
-    // debug to see the actual packet
-    setvbuf(stdout, NULL, _IONBF, 0);
-    write(STDOUT_FILENO, buffer, len);
-
 
     size_t record_offset = 0;
 
