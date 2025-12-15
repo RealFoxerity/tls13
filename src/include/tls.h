@@ -47,8 +47,8 @@ enum ExtensionTypes { // ushort, see rfc8446 page 37 for locations, wrong locati
     ET_SERVER_NAME = 0,                             /* CH, EE,      RFC 6066 */ // REQUIRED, implemeneted check
     ET_MAX_FRAGMENT_LENGTH = 1,                     /* CH, EE,      RFC 6066 */
     ET_STATUS_REQUEST = 5,                          /* CH, CR, CT,  RFC 6066 */
-    ET_SUPPORTED_GROUPS = 10,                       /* CH, EE,      RFC 8422, 7919 */ // REQUIRED, implemented check
-    ET_SIGNATURE_ALGORITHMS = 13,                   /* CH, CR,      RFC 8446 */ // REQUIRED, implemented check
+    ET_SUPPORTED_GROUPS = 10,                       /* CH, EE,      RFC 8422, 7919 */ // REQUIRED, implemented
+    ET_SIGNATURE_ALGORITHMS = 13,                   /* CH, CR,      RFC 8446 */ // REQUIRED, implemented
     ET_USE_SRTP = 14,                               /* CH, EE,      RFC 5764 */
     ET_HEARTBEAT = 15,                              /* CH, EE,      RFC 6520 */
     ET_APPLICATION_LAYER_PROTOCOL_NEGOTIATION = 16, /* CH, EE,      RFC 7301 */
@@ -56,9 +56,9 @@ enum ExtensionTypes { // ushort, see rfc8446 page 37 for locations, wrong locati
     ET_CLIENT_CERTIFICATE_TYPE = 19,                /* CH, EE,      RFC 7250 */
     ET_SERVER_CERTIFICATE_TYPE = 20,                /* CH, EE,      RFC 7250 */
     ET_PADDING = 21,                                /* CH,          RFC 7685 */
-    ET_KEY_SHARE = 51,                              /* CH, SH, HRR, RFC 8446 */ // REQUIRED, implemented check
+    ET_KEY_SHARE = 51,                              /* CH, SH, HRR, RFC 8446 */ // REQUIRED, implemented
     ET_PRE_SHARED_KEY = 41,                         /* CH, SH,      RFC 8446 */ // REQUIRED for PSK
-    ET_PSK_KEY_EXCHANGE_MODES = 45,                 /* CH,          RFC 8446 */ // REQUIRED for PSK, implemented check, probably not implement since it's not used normally
+    ET_PSK_KEY_EXCHANGE_MODES = 45,                 /* CH,          RFC 8446 */ // REQUIRED for PSK, implemented check, probably won't implement since it's not used normally
     ET_EARLY_DATA = 42,                             /* CH, EE, NST  RFC 8446 */
     ET_COOKIE = 44,                                 /* CH, HRR      RFC 8446 */ // REQUIRED, but wont implemenent since it's never used either way
     ET_SUPPORTED_VERSIONS = 43,                     /* CH, SH, HRR  RFC 8446 */ // REQUIRED, implemeneted
@@ -141,7 +141,7 @@ enum SignatureSchemes {
     // note: this is the uncompressed format indicated by 0x04 at the start of the public key, otherwise 0x0C
     //  client announces support for compressed formats using the ECPointFormatList extension, 
     //  but tls1.3 removed support for anything other than uncompressed format, so not implementing it
-    SS_ECDSA_SECP256R1_SHA256 = 0x0403, // will be implementing this
+    SS_ECDSA_SECP256R1_SHA256 = 0x0403, // implemented
     SS_ECDSA_SECP384R1_SHA384 = 0x0503,
     SS_ECDSA_SECP521R1_SHA512 = 0x0603,
 
@@ -197,7 +197,7 @@ curl supports the following:
 */
 
 enum NamedGroups { // key share, ushort
-    NG_SECP256R1 = 0x0017,// will try to implement these, currently this, also uncompressed format
+    NG_SECP256R1 = 0x0017,// implemented uncompressed format
     NG_SECP384R1 = 0x0018,// will try to implement these
     NG_SECP521R1 = 0x0019,// will try to implement these
     NG_X25519 = 0x001d,
@@ -299,6 +299,33 @@ struct ServerHello {
     unsigned short cipher_suite; // better to work with than char[2]
     unsigned char legacy_compression_method; // 0
     Vector extensions;
+};
+
+
+#include "hkdf_tls.h"
+#include "crypto/sha2.h"
+struct tls_context {
+    sha2_ctx_t transcript_hash_ctx;
+
+    uint64_t recv_message_counter, txd_message_counter;
+
+    // context options
+    unsigned short chosen_signature_algo;
+    unsigned short chosen_group;
+    unsigned short chosen_cipher_suite;
+
+    // server's random data from server hello, don't think it's actually used anywhere
+    unsigned char random_crypto[TLS_RANDOM_LEN];
+
+    // DH keys
+    struct KeyShareNode client_key_share, server_key_share;
+    Keys server_ecdhe_keys;
+
+    // traffic encryption keys, ivs, and secrets
+    struct prk early_secret, handshake_secret, master_secret;
+    Vector master_key, server_hs_traffic_secret, client_hs_traffic_secret;
+    Vector server_write_key, server_write_iv, client_write_key, client_write_iv;
+    Vector server_application_secret_0, server_application_iv, client_application_secret_0, client_application_iv;
 };
 
 #endif

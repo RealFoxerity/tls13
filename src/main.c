@@ -26,6 +26,8 @@
 
 #define MAX_LEN_DOMAIN 256
 
+#define MAX_TIMEOUT 20 // seconds before closing the server socket for inactivity
+
 #define MIN(a,b) (a>b?b:a)
 #define MAX(a,b) (a<b?b:a)
 
@@ -217,6 +219,15 @@ exit(EXIT_SUCCESS);
     setsockopt(socket_fd, SOL_SOCKET, SO_REUSEADDR, &true_int, sizeof(int)); // skips the TIME_WAIT state
     setsockopt(socket_fd, SOL_SOCKET, SO_REUSEPORT, &true_int, sizeof(int)); // allows to have multiple servers handling multiple domains on the same port
 
+    struct timeval socket_timeo_val = {
+        .tv_sec = MAX_TIMEOUT,
+        .tv_usec = 0
+    };
+    if (setsockopt(socket_fd, SOL_SOCKET, SO_RCVTIMEO, &socket_timeo_val, sizeof(struct timeval)) == -1) {
+        perror("Failed to set recieve timeout on HTTP socket ");
+    }
+
+
     addr = (struct sockaddr_in){
         .sin_addr = {ip},
         .sin_port = port,
@@ -238,6 +249,10 @@ exit(EXIT_SUCCESS);
         setsockopt(socket_fd_ssl, SOL_SOCKET, SO_REUSEADDR, &true_int, sizeof(int));
         setsockopt(socket_fd_ssl, SOL_SOCKET, SO_REUSEPORT, &true_int, sizeof(int));
 
+        if (setsockopt(socket_fd_ssl, SOL_SOCKET, SO_RCVTIMEO, &socket_timeo_val, sizeof(struct timeval)) == -1) {
+            perror("Failed to set recieve timeout on HTTP socket ");
+        }
+        
         addr_ssl = (struct sockaddr_in){
             .sin_addr = {ip},
             .sin_port = ssl_port,
@@ -324,5 +339,6 @@ exit(EXIT_SUCCESS);
     } 
 
     perror("Server stopped: ");
+    free(real_root);
     return errno;
 }

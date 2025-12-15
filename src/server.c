@@ -9,6 +9,8 @@
 #include <sys/stat.h> // stat
 #include <time.h> // ctime
 
+#include <signal.h>
+
 #include <string.h> // memset, strncmp
 #include <dirent.h> // scandir
 
@@ -24,7 +26,7 @@
 
 char * buffer = NULL, * out = NULL, * path = NULL, * line = NULL, * http_version = NULL, * requested_path = NULL;
 
-#define exit(a) {free(real_root); free(buffer); free(out); free(path); free(line); free(http_version); free(requested_path); exit(a);}
+#define exit(a) {cleanup(); exit(a);}
 
 
 static inline void respond(char * buffer, int socket_fd);
@@ -36,7 +38,23 @@ extern char * real_root;
 extern char ip_client[16];
 extern struct sockaddr_in addr;
 
+static void cleanup() {
+    free(real_root);
+    free(buffer);
+    free(out);
+    free(path);
+    free(line);
+    free(http_version);
+    free(requested_path);
+}
+
+static void exit_handler(int signal) {
+    fprintf(stderr, "Caught Ctrl+C, exiting HTTP server\n");
+    exit(EXIT_SUCCESS);
+}
+
 void server(int socket_fd) {
+    signal(SIGINT, exit_handler);
     struct timeval time = {
         .tv_sec = MAX_TIMEOUT,
         .tv_usec = 0
@@ -84,7 +102,7 @@ void server(int socket_fd) {
                 break;
         }
     }
-
+    cleanup();
     return;
 }
 
