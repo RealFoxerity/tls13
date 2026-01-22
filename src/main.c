@@ -71,9 +71,10 @@ void terminate(int signal) {
 
 pid_t server_pid;
 
-char * ssl_priv_key = NULL;
-char * ssl_cert = NULL;
-
+char * ssl_priv_key_path = NULL;
+char * ssl_cert_path = NULL;
+unsigned char * ssl_cert = NULL;
+size_t ssl_cert_len = 0;
 char ssl = 0;
 
 
@@ -154,14 +155,14 @@ exit(EXIT_SUCCESS);
                 fprintf(stderr, "-c requires an argument!\n");
                 exit(EXIT_FAILURE);
             }
-            ssl_cert = argv[++i];
+            ssl_cert_path = argv[++i];
             continue;
         }else if (strcmp("-k", argv[i]) == 0) {
             if (i+1 >= argc) {
                 fprintf(stderr, "-k requires an argument!\n");
                 exit(EXIT_FAILURE);
             }
-            ssl_priv_key = argv[++i];
+            ssl_priv_key_path = argv[++i];
             continue;
         }
         else if (strcmp("-d", argv[i]) == 0) {
@@ -188,9 +189,28 @@ exit(EXIT_SUCCESS);
         }
     }
 
-    if (ssl && (ssl_cert == NULL || ssl_priv_key == NULL)) {
+    if (ssl && (ssl_cert_path == NULL || ssl_priv_key_path == NULL)) {
         fprintf(stderr, "SSL requires both a certificate and a private key!\n");
         goto help;
+    } else if (ssl) {
+        FILE * ssl_cert_file = fopen(ssl_cert_path, "r");
+        if (!ssl_cert_file) {
+            perror("Failed to open SSL certificate: ");
+            exit(errno);
+        }
+        fseek(ssl_cert_file, 0, SEEK_END);
+        ssl_cert_len = ftell(ssl_cert_file);
+        if (ssl_cert_len == 0) {
+            fprintf(stderr, "0 length/truncated to 0 SSL certificate!\n");
+            fclose(ssl_cert_file);
+            exit(EXIT_FAILURE);
+        }
+        rewind(ssl_cert_file);
+
+        ssl_cert = malloc(ssl_cert_len);
+        assert(ssl_cert);
+        fread(ssl_cert, 1, ssl_cert_len, ssl_cert_file);
+        fclose(ssl_cert_file);
     }
 
     if (port == ssl_port) {
@@ -340,5 +360,6 @@ exit(EXIT_SUCCESS);
 
     perror("Server stopped: ");
     free(real_root);
+    free(ssl_cert);
     return errno;
 }

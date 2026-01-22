@@ -34,7 +34,8 @@
 int inner_fd = -1; // socket TLS-application
 
 extern char * real_root; // since we fork for a second time, we need to manually free real_root otherwise we leak up to PATH_MAX (4096) bytes
-
+extern unsigned char * ssl_cert;
+extern size_t ssl_cert_len;
 char * target_server_name = NULL;
 
 struct tls_context tls_context = {0};
@@ -69,7 +70,7 @@ void free_tls_metadata() {
 }
 
 int decrypt_tls(unsigned char* buffer, size_t len);
-int encrypt_tls_packet(unsigned char original_packet_type, unsigned char * restrict out_buf, size_t out_buf_len, const unsigned char * restrict input_buf, size_t in_buf_len);
+int encrypt_tls_packet(unsigned char wrapped_record_type, unsigned char original_packet_type, unsigned char * restrict out_buf, size_t out_buf_len, const unsigned char * restrict input_buf, size_t in_buf_len);
 void construct_alert(unsigned char alert_desc, unsigned char alert_level, unsigned char* buffer, size_t bufsiz) {
     assert(bufsiz >= sizeof(TLS_record_header)+sizeof(struct Alert));
     memset(buffer, 0, bufsiz);
@@ -81,6 +82,7 @@ void construct_alert(unsigned char alert_desc, unsigned char alert_level, unsign
 }
 
 int construct_encrypted_extensions(unsigned char * buffer, size_t len);
+int construct_certificate(unsigned char * buffer, size_t len);
 
 void exit_handler(int signal) {
     fprintf(stderr, "Caught Ctrl+C, exiting ssl wrapper\n");
@@ -159,7 +161,10 @@ char ssl_wrapper(int socket_fd) {
                         if (ret < 0) goto alert;
                         tls_context.txd_message_counter ++;
                         send(socket_fd, tls_packet_buffer, ret, 0);
-                        // certificate
+                        ret = construct_certificate(tls_packet_buffer, MAX_REQUEST_SIZE);
+                        if (ret < 0) goto alert;
+                        tls_context.txd_message_counter ++;
+                        send(socket_fd, tls_packet_buffer, ret, 0);
                         // certificate verify
                     default:
                         break;
@@ -406,7 +411,7 @@ int construct_server_hello(unsigned char * buffer, size_t len, struct ClientHell
                 assert(special_mes);
 
                 (*(TLS_handshake*)special_mes).msg_type = HT_MESSAGE_HASH;
-                (*(TLS_handshake*)special_mes).length[2] = SHA256_HASH_BYTES;
+                (*(TLS_handshake*)special_mes).length = htons(SHA256_HASH_BYTES);
                 sha256_finalize(&tls_context.transcript_hash_ctx, special_mes + sizeof(TLS_handshake));
                 sha256_init(&tls_context.transcript_hash_ctx);
                 sha256_update(&tls_context.transcript_hash_ctx, special_mes, sizeof(TLS_handshake) + SHA256_HASH_BYTES);
@@ -416,7 +421,7 @@ int construct_server_hello(unsigned char * buffer, size_t len, struct ClientHell
                 assert(special_mes);
 
                 (*(TLS_handshake*)special_mes).msg_type = HT_MESSAGE_HASH;
-                (*(TLS_handshake*)special_mes).length[2] = SHA384_HASH_BYTES;
+                (*(TLS_handshake*)special_mes).length = htons(SHA384_HASH_BYTES);
                 sha384_finalize(&tls_context.transcript_hash_ctx, special_mes + sizeof(TLS_handshake));
                 sha384_init(&tls_context.transcript_hash_ctx);
                 sha384_update(&tls_context.transcript_hash_ctx, special_mes, sizeof(TLS_handshake) + SHA384_HASH_BYTES);
@@ -459,8 +464,7 @@ int construct_server_hello(unsigned char * buffer, size_t len, struct ClientHell
     size_t bufoff = sizeof(TLS_record_header);
 
     ((TLS_handshake*)(buffer+bufoff))->msg_type = HT_SERVER_HELLO;
-    ((TLS_handshake*)(buffer+bufoff))->length[0] = 0;
-    *(short*)&(((TLS_handshake*)(buffer+bufoff))->length[1]) = htons(final_size-sizeof(TLS_handshake)-sizeof(TLS_record_header)); // length is uint24 so cheeky trick
+    ((TLS_handshake*)(buffer+bufoff))->length = htons(final_size-sizeof(TLS_handshake)-sizeof(TLS_record_header));
 
     bufoff += sizeof(TLS_handshake);
     *(short*)(buffer+bufoff) = TLS12_COMPAT_VERSION;
@@ -559,7 +563,7 @@ int handshake_tls(unsigned char * buffer, size_t record_end_offset, size_t len) 
     size_t message_offset = record_end_offset; // for transcript hash - record layer is not a part of the transcript
 
     memcpy(&handshake, buffer + message_offset, sizeof(TLS_handshake));
-    int handshake_len = (handshake.length[0] << 16) + (handshake.length[1] << 8) + handshake.length[2];
+    int handshake_len = htons(handshake.length);
 
     if (handshake_len > len-sizeof(TLS_handshake)) {
         fprintf(stderr, "Handshake length larger than recieved data!\n");
@@ -646,7 +650,10 @@ int handshake_tls(unsigned char * buffer, size_t record_end_offset, size_t len) 
       } TLSCiphertext;
 */
 
-int encrypt_tls_packet(unsigned char original_packet_type, unsigned char * restrict out_buf, size_t out_buf_len, const unsigned char * restrict input_buf, size_t in_buf_len) {
+
+// wrapped record type (encrypted packets end with message type), inner handshake message type (so we don't have to wrap our packets ourselves), output buffer, len, input data buffer, len
+int encrypt_tls_packet(unsigned char wrapped_record_type, unsigned char handshake_message_type, unsigned char * restrict out_buf, size_t out_buf_len, const unsigned char * restrict input_buf, size_t in_buf_len) {
+    assert(in_buf_len < 1<<16);
     size_t aead_tag_len = 0;
     switch (tls_context.chosen_cipher_suite) {
         case TLS_AES_128_GCM_SHA256:
@@ -659,11 +666,16 @@ int encrypt_tls_packet(unsigned char original_packet_type, unsigned char * restr
     }
 
     size_t pad_bytes = 0; // selected 0 because it is not required, see https://www.rfc-editor.org/rfc/rfc8446#section-5.4
-    size_t wrapped_len = in_buf_len + 1 + pad_bytes;
-    unsigned char * input_buf_wrapped = malloc(wrapped_len);
+    size_t wrapped_len = sizeof(TLS_handshake) + in_buf_len + 1 + pad_bytes;
+    unsigned char * input_buf_wrapped = calloc(wrapped_len, 1);
+    *(TLS_handshake*)input_buf_wrapped = (TLS_handshake) {
+        .msg_type = handshake_message_type,
+        .length = htons(in_buf_len)
+    };
+
     assert(input_buf_wrapped);
-    memcpy(input_buf_wrapped, input_buf, in_buf_len);
-    input_buf_wrapped[in_buf_len] = original_packet_type;
+    memcpy(input_buf_wrapped + sizeof(TLS_handshake), input_buf, in_buf_len);
+    input_buf_wrapped[sizeof(TLS_handshake)+in_buf_len] = wrapped_record_type;
 
     size_t ret_len = wrapped_len + aead_tag_len + sizeof(TLS_record_header);
     assert(out_buf_len >= ret_len);
@@ -782,8 +794,32 @@ int decrypt_tls(unsigned char* buffer, size_t len) { // TODO: implement alerts, 
 }
 
 int construct_encrypted_extensions(unsigned char * buffer, size_t len) {
-    static const unsigned char ee_packet[] = "\x08\x00\x00\x02\x00\x00";
-    return encrypt_tls_packet(CT_HANDSHAKE, buffer, len, ee_packet, sizeof(ee_packet) - 1);
+    static const unsigned char ee_packet[] = "\x00\x00";
+    return encrypt_tls_packet(CT_HANDSHAKE, HT_ENCRYPTED_EXTENSIONS, buffer, len, ee_packet, sizeof(ee_packet) - 1);
+}
+
+int construct_certificate(unsigned char * buffer, size_t len) {
+    size_t wrapped_cert_len = 
+        sizeof(struct ServerCertificatesHeader) + 
+        3 + // uint24_t for the certificate length
+        ssl_cert_len +
+        2 + // uint16_t for the extension length
+        0 // we don't use any extensions
+    ;
+    unsigned char * wrapped_cert = calloc(wrapped_cert_len, 1);
+    
+    assert(wrapped_cert);
+
+    *(struct ServerCertificatesHeader*) wrapped_cert = (struct ServerCertificatesHeader) {
+        .certificate_request_context = 0,
+        .cert_data_len = htons(wrapped_cert_len - sizeof(struct ServerCertificatesHeader))
+    };
+    *(unsigned short*)&wrapped_cert[sizeof(struct ServerCertificatesHeader)+1] = htons(ssl_cert_len); // uint24_t, need to skip the 1 byte
+    memcpy(wrapped_cert + sizeof(struct ServerCertificatesHeader) + 3, ssl_cert, ssl_cert_len);
+
+    // don't need to set uint16_t for extension length since they are 0 anyway
+
+    return encrypt_tls_packet(CT_HANDSHAKE, HT_CERTIFICATE, buffer, len, wrapped_cert, wrapped_cert_len);
 }
 
 void cleanup() {
@@ -805,4 +841,5 @@ void cleanup() {
     free(tls_context.server_application_iv.data);
     free(tls_context.client_application_secret_0.data);
     free(tls_context.client_application_iv.data);
+    free(ssl_cert);
 }

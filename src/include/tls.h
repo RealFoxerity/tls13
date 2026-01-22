@@ -71,7 +71,7 @@ enum ExtensionTypes { // ushort, see rfc8446 page 37 for locations, wrong locati
 };
 
 enum CertTypes {
-    CERTTYPE_X509 = 0,
+    CERTTYPE_X509 = 0, // implicitly selected if nothing in certificate extensions and/or encrypted extensions
     CERTTYPE_RAW = 2,
     //CERTTYPE_1609DOT2 = 3
 };
@@ -280,7 +280,8 @@ struct {
 
 struct {
     unsigned char msg_type;
-    unsigned char length[3]; // uint24 ????? HOW EVEN IF TLS_PLAINTEXT_HEADER HAS UNSIGNED SHORT (prolly pad but still)
+    unsigned char __pad; // length is technically uint24, but since the record layer itself has a uint16, this byte is always 0
+    unsigned short length;
 }__attribute__((packed)) typedef TLS_handshake;
 
 struct {
@@ -306,6 +307,21 @@ struct ServerHello {
     unsigned char legacy_compression_method; // 0
     Vector extensions;
 };
+
+
+/* the certificate packet looks like this
+    certificate_req_context - 0 if server sending, what was in certificate request if client requesting
+    CertificateEntry<0..2^24-1> certificate_list
+
+    CertificateEntry:
+    Vector<0..2^24-1> cert_data/ASN1_subjectPublicKeyInfo depending on certificate types, see CERTTYPE_X509 and CERTTYPE_RAW
+    Vector<0..2^16-1> extensions
+*/
+struct ServerCertificatesHeader {
+    unsigned char certificate_request_context;
+    unsigned char __pad1;
+    unsigned short cert_data_len; // the entire length of every single sent certificate
+} __attribute__((packed));
 
 
 #include "hkdf_tls.h"
