@@ -70,6 +70,12 @@ enum ExtensionTypes { // ushort, see rfc8446 page 37 for locations, wrong locati
     ET_SESSION_TICKET_IGNORE = 35,                  /* RFC 8446 */ // not required from server, but TLS clients include this extension usually
 };
 
+enum CertTypes {
+    CERTTYPE_X509 = 0,
+    CERTTYPE_RAW = 2,
+    //CERTTYPE_1609DOT2 = 3
+};
+
 enum PskKeyExchangeModes { // uchar
     PKEM_KE = 0, // server MUST NOT return key_share
     PKEM_DHE_KE = 1,
