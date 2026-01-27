@@ -1,5 +1,5 @@
 #include <stdint.h>
-#include "../include/crypto/sha2_internal.h"
+#include "include/sha2_internal.h"
 
 
 const uint64_t sha384_iv[SHA512_WORK_VARS] = {

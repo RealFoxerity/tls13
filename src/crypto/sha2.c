@@ -5,7 +5,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <stdio.h>
-#include "../include/crypto/sha2_internal.h"
+#include "include/sha2_internal.h"
 #include <assert.h>
 #include <string.h>
 // sha-1, sha-224, sha-256, sha-384, sha-512, sha-512/224, sha-512/256

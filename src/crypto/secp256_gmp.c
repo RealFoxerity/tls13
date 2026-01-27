@@ -2,10 +2,10 @@
 #include <stdlib.h>
 #include <gmp.h>
 #include <sys/types.h>
-#include "../include/crypto/secp256.h"
-#include "../include/crypto/secp256_consts.h"
+#include "include/secp256.h"
+#include "include/secp256_consts.h"
 
-#include "../include/crypto/generic_weierstrass_curve.h"
+#include "include/generic_weierstrass_curve.h"
 #include <string.h>
 // TODO: explore performance gains by passing around preallocated mpz_t structs, fixing the mpz_clear in point_and_add at the same time
 

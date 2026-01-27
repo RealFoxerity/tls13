@@ -2,7 +2,7 @@
 #include <gmp.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include "../include/crypto/generic_weierstrass_curve.h"
+#include "include/generic_weierstrass_curve.h"
 
 static elpoint get_point(elpoint a, elpoint b, mpz_t lambda, mpz_t prime) {
     /*

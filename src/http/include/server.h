@@ -7,6 +7,5 @@
 #define free(a) {free(a); a = NULL;} // prevents UAF
 
 void server(int socket_fd);
-char ssl_wrapper(int socket_fd); // tls_wrapper.c
 
 #endif

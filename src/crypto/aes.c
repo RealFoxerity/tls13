@@ -4,7 +4,7 @@
 #include <stdio.h>
 #include <endian.h>
 #include <string.h>
-#include "../include/crypto/aes.h"
+#include "include/aes.h"
 // all aes functions, and all galois_... functions, work in galois field of 2^8 order
 
 #if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__

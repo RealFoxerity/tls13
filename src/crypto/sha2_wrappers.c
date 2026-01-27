@@ -1,4 +1,4 @@
-#include "../include/crypto/sha2_internal.h"
+#include "include/sha2_internal.h"
 #include <string.h>
 
 extern void sha256_init_internal(sha2_ctx_t * ctx, const uint32_t * iv);

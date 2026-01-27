@@ -1,10 +1,10 @@
 // https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.186-5.pdf 6.4 - ECDSA Digital Signature Generation and Verification
-#include "../include/crypto/secp256.h"
-#include "../include/crypto/secp256_consts.h"
-#include "../include/crypto/generic_weierstrass_curve.h"
-#include "../include/crypto/ecdsa_secp256.h"
-#include "../include/crypto/hmac.h"
-#include "../include/crypto/sha2.h"
+#include "include/secp256.h"
+#include "include/secp256_consts.h"
+#include "include/generic_weierstrass_curve.h"
+#include "include/ecdsa_secp256.h"
+#include "include/hmac.h"
+#include "include/sha2.h"
 
 #include <assert.h>
 #include <stddef.h>

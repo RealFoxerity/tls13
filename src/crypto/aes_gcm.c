@@ -1,7 +1,7 @@
 //https://nvlpubs.nist.gov/nistpubs/Legacy/SP/nistspecialpublication800-38d.pdf
 //https://csrc.nist.rip/groups/ST/toolkit/BCM/documents/proposedmodes/gcm/gcm-spec.pdf
 // for the exact case of tls 1.3 see https://www.rfc-editor.org/rfc/rfc8446#section-5.2
-#include "../include/crypto/aes.h"
+#include "include/aes.h"
 #include <endian.h>
 #include <stddef.h>
 #include <stdint.h>

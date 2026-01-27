@@ -1,10 +1,10 @@
-#include "include/crypto/aes.h"
-#include "include/crypto/hmac.h"
+#include "crypto/include/aes.h"
+#include "crypto/include/hmac.h"
 #include "include/tls.h"
 #include "include/memstructs.h"
-#include "include/crypto/secp256.h"
-#include "include/crypto/sha2.h"
-#include "include/crypto/hkdf.h"
+#include "crypto/include/secp256.h"
+#include "crypto/include/sha2.h"
+#include "crypto/include/hkdf.h"
 #include "include/hkdf_tls.h"
 
 #include <stdio.h>

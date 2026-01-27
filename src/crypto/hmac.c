@@ -1,6 +1,6 @@
 //https://www.rfc-editor.org/rfc/rfc2104
-#include "../include/crypto/hmac.h"
-#include "../include/crypto/sha2.h"
+#include "include/hmac.h"
+#include "include/sha2.h"
 #include <assert.h>
 #include <string.h>
 #include <stdio.h>

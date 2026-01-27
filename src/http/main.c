@@ -6,6 +6,7 @@
 #include <unistd.h> // fork
 
 #include "include/server.h"
+#include "../include/tls_wrapper.h"
 
 #include <sys/socket.h> // all socket and networking
 #include <arpa/inet.h> // htonl, htons, inet_pton, inet_ntop
@@ -348,7 +349,7 @@ exit(EXIT_SUCCESS);
         switch (testing?0:fork()) {
                 case 0: // child
                 if (!connect_is_ssl) server(conn_fd);
-                else out = ssl_wrapper(conn_fd);
+                else out = ssl_wrapper(conn_fd, server);
                 free(real_root);
                 exit(out);
                 break;

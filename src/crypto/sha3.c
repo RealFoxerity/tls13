@@ -1,6 +1,6 @@
 #include <stddef.h>
 #include <stdlib.h>
-#include "../include/crypto/sha3.h"
+#include "include/sha3.h"
 #include <assert.h>
 #include <string.h>
 

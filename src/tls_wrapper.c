@@ -16,12 +16,12 @@
 
 #include <unistd.h> // close, access
 
-#include "include/crypto/aes.h"
-#include "include/server.h"
+#include "crypto/include/aes.h"
+#include "http/include/server.h"
 #include "include/tls.h"
 #include "include/tls_extensions.h"
 #include "include/memstructs.h"
-#include "include/crypto/sha2.h"
+#include "crypto/include/sha2.h"
 #include "include/tls_crypto.h"
 
 #define MIN(a,b) (a>b?b:a)
@@ -95,7 +95,7 @@ void exit_handler(int signal) {
     exit(EXIT_SUCCESS);
 }
 
-char ssl_wrapper(int socket_fd) {
+char ssl_wrapper(int socket_fd, void (*wrapped_func)(int socket_fd)) {
     signal(SIGINT, exit_handler);
     int socks[2];
     assert(socketpair(AF_UNIX, SOCK_STREAM, 0, socks) == 0);
@@ -104,7 +104,7 @@ char ssl_wrapper(int socket_fd) {
     switch (fork()) {
         case 0:
             close(socks[0]);
-            server(socks[1]);
+            wrapped_func(socks[1]);
             return(EXIT_SUCCESS);
             break;
         default:
@@ -819,7 +819,9 @@ int construct_certificate(unsigned char * buffer, size_t len) {
 
     // don't need to set uint16_t for extension length since they are 0 anyway
 
-    return encrypt_tls_packet(CT_HANDSHAKE, HT_CERTIFICATE, buffer, len, wrapped_cert, wrapped_cert_len);
+    int ret = encrypt_tls_packet(CT_HANDSHAKE, HT_CERTIFICATE, buffer, len, wrapped_cert, wrapped_cert_len);
+    free(wrapped_cert);
+    return ret;
 }
 
 void cleanup() {

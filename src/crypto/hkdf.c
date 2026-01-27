@@ -1,7 +1,7 @@
 //https://www.rfc-editor.org/rfc/rfc5869
-#include "../include/crypto/hkdf.h"
-#include "../include/crypto/hmac.h"
-#include "../include/crypto/sha2.h"
+#include "include/hkdf.h"
+#include "include/hmac.h"
+#include "include/sha2.h"
 #include <assert.h>
 #include <string.h>
 #include <stdlib.h>
