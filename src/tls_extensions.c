@@ -1,5 +1,5 @@
 #include "include/tls_extensions.h"
-#include "include/tls.h"
+#include "include/tls_internal.h"
 
 #include <assert.h>
 #include <netinet/in.h>

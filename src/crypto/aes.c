@@ -376,8 +376,6 @@ static inline void aes_invmixcolumns(uint8_t state[AES_STATE_W][AES_STATE_W]) {
 }
 
 static void aes_internal_invcipher(const uint8_t enc_data[AES_BLOCK_SIZE], uint8_t plain_data_out[AES_BLOCK_SIZE], int key_expansion_rounds, const uint8_t * block_cipher_key) {
-    // DOESN'T YET WORK, TODO: FIX
-    
     uint8_t state[AES_STATE_W][AES_STATE_W] = {0};
 
     aes_bytes_to_state(state, enc_data);

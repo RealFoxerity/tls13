@@ -1,6 +1,6 @@
 #include "crypto/include/aes.h"
 #include "crypto/include/hmac.h"
-#include "include/tls.h"
+#include "include/tls_internal.h"
 #include "include/memstructs.h"
 #include "crypto/include/secp256.h"
 #include "crypto/include/sha2.h"

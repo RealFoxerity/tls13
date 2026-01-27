@@ -1,7 +1,7 @@
 #ifndef TLS_CRYPTO_H
 #define TLS_CRYPTO_H
 #include "memstructs.h"
-#include "tls.h"
+#include "tls_internal.h"
 
 void generate_server_secrets(struct tls_context * tls_context);
 void generate_server_app_secrets(struct tls_context * tls_context);

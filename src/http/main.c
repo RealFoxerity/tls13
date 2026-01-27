@@ -6,7 +6,7 @@
 #include <unistd.h> // fork
 
 #include "include/server.h"
-#include "../include/tls_wrapper.h"
+#include "../include/tls.h"
 
 #include <sys/socket.h> // all socket and networking
 #include <arpa/inet.h> // htonl, htons, inet_pton, inet_ntop
@@ -74,8 +74,6 @@ pid_t server_pid;
 
 char * ssl_priv_key_path = NULL;
 char * ssl_cert_path = NULL;
-unsigned char * ssl_cert = NULL;
-size_t ssl_cert_len = 0;
 char ssl = 0;
 
 
@@ -194,24 +192,13 @@ exit(EXIT_SUCCESS);
         fprintf(stderr, "SSL requires both a certificate and a private key!\n");
         goto help;
     } else if (ssl) {
-        FILE * ssl_cert_file = fopen(ssl_cert_path, "r");
-        if (!ssl_cert_file) {
-            perror("Failed to open SSL certificate: ");
-            exit(errno);
+        switch (ssl_load_cert(ssl_cert_path, ssl_priv_key_path)) {
+            case 0:
+                break;
+            default:
+                fprintf(stderr, "Failed to load ssl certificates!\n");
+                exit(EXIT_FAILURE);
         }
-        fseek(ssl_cert_file, 0, SEEK_END);
-        ssl_cert_len = ftell(ssl_cert_file);
-        if (ssl_cert_len == 0) {
-            fprintf(stderr, "0 length/truncated to 0 SSL certificate!\n");
-            fclose(ssl_cert_file);
-            exit(EXIT_FAILURE);
-        }
-        rewind(ssl_cert_file);
-
-        ssl_cert = malloc(ssl_cert_len);
-        assert(ssl_cert);
-        fread(ssl_cert, 1, ssl_cert_len, ssl_cert_file);
-        fclose(ssl_cert_file);
     }
 
     if (port == ssl_port) {
@@ -351,6 +338,7 @@ exit(EXIT_SUCCESS);
                 if (!connect_is_ssl) server(conn_fd);
                 else out = ssl_wrapper(conn_fd, server);
                 free(real_root);
+                ssl_cleanup();
                 exit(out);
                 break;
             default:
@@ -360,7 +348,6 @@ exit(EXIT_SUCCESS);
     } 
 
     perror("Server stopped: ");
-    free(real_root);
-    free(ssl_cert);
+    if (ssl) ssl_cleanup();
     return errno;
 }

@@ -12,19 +12,17 @@
 #include <stdlib.h>
 #include <gmp.h>
 
-char verify(
+char ecdsa_verify_secp256r1(
         struct ECDSA_signature signature, enum hmac_supported_hashes hash_type, 
-        const unsigned char * data, size_t data_len, 
-        unsigned char * nonce, size_t nonce_len);
+        const unsigned char * data, size_t data_len,
+        struct secp_key public_key);
 
 struct ECDSA_signature ecdsa_sign_secp256r1(
         enum hmac_supported_hashes hash_type, 
-        const unsigned char * data, size_t data_len, 
-        unsigned char * nonce, size_t nonce_len, 
+        const unsigned char * data, size_t data_len,  
         struct secp_key private_key) {
     // https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.186-5.pdf 6.4.1
     assert(data);
-    assert(nonce);
     assert(private_key.private_key);
     
     struct ECDSA_signature out = {NULL};
@@ -117,8 +115,8 @@ struct ECDSA_signature ecdsa_sign_secp256r1(
     if (mpz_cmp_ui(s, 0) == 0) goto retry;
 
 
-    unsigned char * r_bytes = malloc(ECDSA_SECP256_SIG_SIZE);
-    unsigned char * s_bytes = malloc(ECDSA_SECP256_SIG_SIZE);
+    unsigned char * r_bytes = calloc(ECDSA_SECP256_SIG_SIZE,1);
+    unsigned char * s_bytes = calloc(ECDSA_SECP256_SIG_SIZE,1);
     assert(r_bytes);
     assert(s_bytes);
 

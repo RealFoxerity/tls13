@@ -7,6 +7,7 @@
 #include "include/hmac.h"
 #include "include/hkdf.h"
 #include "include/secp256.h"
+#include "include/ecdsa_secp256.h"
 #include <assert.h>
 #include <string.h>
 #include <unistd.h>
@@ -534,5 +535,27 @@ int main() {
     free(B.public_key);
 
     free(shared_secret);
+
+    printf("\n\nTesting ECDSA sign using secp256r1 and SHA2-384\n");
+
+
+    struct secp_key temp_sig_key = {
+        .private_key = (unsigned char*)"\xc2\x34\xf2\x54\xa5\x4d\x52\xf0\x3e\x60\x2b\xb2\x18\x19\x37\xb1\x8e\x87\x31\xf6\x20\xff\x50\x8c\xb6\xf4\x60\xe9\x58\xe8\x14\x12"
+    };
+
+    struct ECDSA_signature sig = ecdsa_sign_secp256r1(HMAC_SHA2_384, (unsigned char *)"ecdsa sign test", 15, temp_sig_key);
+
+    printf("r: ");
+    for (int i = 0; i < ECDSA_SECP256_SIG_SIZE; i++) {
+        printf("%02hhx", sig.r[i]);
+    }
+    printf("\ns: ");
+    for (int i = 0; i < ECDSA_SECP256_SIG_SIZE; i++) {
+        printf("%02hhx", sig.s[i]);
+    }
+    printf("\n");
+    free(sig.s);
+    free(sig.r);
+
     return 0;
 }

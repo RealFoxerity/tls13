@@ -17,8 +17,8 @@
 #include <unistd.h> // close, access
 
 #include "crypto/include/aes.h"
-#include "http/include/server.h"
 #include "include/tls.h"
+#include "include/tls_internal.h"
 #include "include/tls_extensions.h"
 #include "include/memstructs.h"
 #include "crypto/include/sha2.h"
@@ -33,9 +33,6 @@
 
 int inner_fd = -1; // socket TLS-application
 
-extern char * real_root; // since we fork for a second time, we need to manually free real_root otherwise we leak up to PATH_MAX (4096) bytes
-extern unsigned char * ssl_cert;
-extern size_t ssl_cert_len;
 char * target_server_name = NULL;
 
 struct tls_context tls_context = {0};
@@ -62,11 +59,12 @@ size_t print_hex_buf(const unsigned char * buf, size_t len) {
 //#define recv(fd, buf, len, fl) print_hex_buf(buf, recv(fd, buf, len, fl))
 //#define send(fd, buf, len, fl) {fprintf(stderr, "Txd:\n"); print_hex_buf(buf, len); send(fd, buf, len, fl);}
 
+#define MAX_REQUEST_SIZE 0x100000 // 1MB
+
 void cleanup();
-void free_tls_metadata() {
+void ssl_cleanup() {
     cleanup();
     free(tls_packet_buffer);
-    free(real_root);
 }
 
 int decrypt_tls(unsigned char* buffer, size_t len);
@@ -86,7 +84,7 @@ int construct_certificate(unsigned char * buffer, size_t len);
 
 void exit_handler(int signal) {
     fprintf(stderr, "Caught Ctrl+C, exiting ssl wrapper\n");
-    free_tls_metadata();
+    ssl_cleanup();
 
     shutdown(inner_fd, SHUT_RDWR);
     close(inner_fd);
@@ -96,6 +94,8 @@ void exit_handler(int signal) {
 }
 
 char ssl_wrapper(int socket_fd, void (*wrapped_func)(int socket_fd)) {
+    if (tls_context.cert_len == 0 || tls_context.cert == NULL) return -1; // we don't support PSK nor raw keys and the user hasn't supplied a certificate
+    //if (tls_context.)
     signal(SIGINT, exit_handler);
     int socks[2];
     assert(socketpair(AF_UNIX, SOCK_STREAM, 0, socks) == 0);
@@ -136,14 +136,14 @@ char ssl_wrapper(int socket_fd, void (*wrapped_func)(int socket_fd)) {
             if (recv_len == 0) continue; // how?
 
             if ((ret = decrypt_tls(tls_packet_buffer, recv_len)) == 0xFFFFFFFF) { // got alert
-                free_tls_metadata();
+                ssl_cleanup();
                 return EXIT_FAILURE;
             } else if (ret < 0) {
                 alert:
                 construct_alert(-ret, AL_FATAL, tls_packet_buffer, MAX_REQUEST_SIZE);
                 send(socket_fd, tls_packet_buffer, sizeof(TLS_record_header)+sizeof(struct Alert), 0); // alert messages are always 7 bytes long
-                free_tls_metadata();
-                return (EXIT_FAILURE);
+                ssl_cleanup();
+                return EXIT_FAILURE;
             } else if (ret == 0) continue; // packet doesn't require an answer
             else {
                 switch (current_state) {
@@ -182,7 +182,7 @@ char ssl_wrapper(int socket_fd, void (*wrapped_func)(int socket_fd)) {
     perror("TLS wrapper select(): ");
     close(inner_fd);
     close(socket_fd);
-    free_tls_metadata();
+    ssl_cleanup();
     
     return (errno == EINTR?EXIT_SUCCESS:EXIT_FAILURE);
 }
@@ -802,7 +802,7 @@ int construct_certificate(unsigned char * buffer, size_t len) {
     size_t wrapped_cert_len = 
         sizeof(struct ServerCertificatesHeader) + 
         3 + // uint24_t for the certificate length
-        ssl_cert_len +
+        tls_context.cert_len +
         2 + // uint16_t for the extension length
         0 // we don't use any extensions
     ;
@@ -814,8 +814,8 @@ int construct_certificate(unsigned char * buffer, size_t len) {
         .certificate_request_context = 0,
         .cert_data_len = htons(wrapped_cert_len - sizeof(struct ServerCertificatesHeader))
     };
-    *(unsigned short*)&wrapped_cert[sizeof(struct ServerCertificatesHeader)+1] = htons(ssl_cert_len); // uint24_t, need to skip the 1 byte
-    memcpy(wrapped_cert + sizeof(struct ServerCertificatesHeader) + 3, ssl_cert, ssl_cert_len);
+    *(unsigned short*)&wrapped_cert[sizeof(struct ServerCertificatesHeader)+1] = htons(tls_context.cert_len); // uint24_t, need to skip the 1 byte
+    memcpy(wrapped_cert + sizeof(struct ServerCertificatesHeader) + 3, tls_context.cert, tls_context.cert_len);
 
     // don't need to set uint16_t for extension length since they are 0 anyway
 
@@ -843,5 +843,5 @@ void cleanup() {
     free(tls_context.server_application_iv.data);
     free(tls_context.client_application_secret_0.data);
     free(tls_context.client_application_iv.data);
-    free(ssl_cert);
+    free(tls_context.cert);
 }

@@ -6,9 +6,13 @@ CRYPTO_OBJS=$(shell find src/crypto -name '*.c' | grep -v test | sed 's/\.c$$/.o
 SERVER_OBJS=$(shell find src/http -name '*.c' | grep -v test | sed 's/\.c$$/.o/g')
 #src/crypto/*.o: CFLAGS+=-O3
 
-all: $(SERVER_OBJS) build/libbadtls.so build/libbadcrypto.so
+all: $(SERVER_OBJS) build/libbadtls.so build/libbadcrypto.so tests
 	mkdir -p build
 	$(CC) $(CFLAGS) $(LDFLAGS) $(SERVER_OBJS) -Lbuild -lbadtls -lbadcrypto -o build/http
+	
+	openssl ecparam -name prime256v1 -genkey -outform der -out build/test_secp256r1_priv.der
+	openssl req -new -x509 -outform der -key build/test_secp256r1_priv.der -out build/test_secp256r1_pub.der -subj "/C=US/ST=State/L=City/O=Organization/OU=Unit/CN=CommonName"
+
 	#echo Setting CAP_NET_BIND_SERVICE...; (sudo setcap cap_net_bind_service=ep build/http || echo Failed) # to be able to run the server without root, commented out because it doesn't work on NFS (my rootfs)
 
 build/libbadtls.so: $(TLS_WRAPPER_OBJS)
