@@ -23,10 +23,15 @@ build/libbadcrypto.so: $(CRYPTO_OBJS)
 	mkdir -p build
 	$(CC) $(CFLAGS) $(LDFLAGS) $(CRYPTO_OBJS) -shared -o build/libbadcrypto.so
 
-tests: tests_crypto
-tests_crypto: build/libbadcrypto.so src/crypto/test_crypto_suite.o
-	mkdir -p build/tests/crypto
-	$(CC) $(CFLAGS) $(LDFLAGS) src/crypto/test_crypto_suite.o -Lbuild -lbadcrypto -o build/tests/crypto/crypto_test
+tests: build/tests/crypto build/tests/tls
+build/tests/crypto: build/libbadcrypto.so src/crypto/test_crypto_suite.o
+	mkdir -p build/tests
+	$(CC) $(CFLAGS) $(LDFLAGS) src/crypto/test_crypto_suite.o -Lbuild -lbadcrypto -o build/tests/crypto
+
+build/tests/tls: build/libbadcrypto.so build/libbadtls.so src/test_tls_funcs.o
+	mkdir -p build/tests
+	$(CC) $(CFLAGS) $(LDFLAGS) src/test_tls_funcs.o -Lbuild -lbadcrypto -lbadtls -o build/tests/tls
+
 
 release: all
 	strip -s build/http

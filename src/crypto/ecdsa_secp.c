@@ -71,7 +71,7 @@ struct ECDSA_signature ecdsa_sign_secp256r1(
             break;
     }
 
-    mpz_t hash_integer, per_message_secret, s, secp256_generator_order, a;
+    mpz_t hash_integer, per_message_secret, s, secp256_generator_order, secp256_curve_prime, a;
     elpoint R, secp256_generator;
 
     mpz_t private_key_int;
@@ -79,9 +79,10 @@ struct ECDSA_signature ecdsa_sign_secp256r1(
     mpz_import(private_key_int, SECP256_PRIVKEY_SIZE, 1, 1, 1, 0, private_key.private_key);
 
     unsigned char pms_bytes[secp256_order_len] = {0};
-    mpz_inits(hash_integer, per_message_secret, s, secp256_generator_order, a, R.x, R.y, secp256_generator.x, secp256_generator.y, NULL);
+    mpz_inits(hash_integer, per_message_secret, s, secp256_generator_order, secp256_curve_prime, a, R.x, R.y, secp256_generator.x, secp256_generator.y, NULL);
 
     mpz_set_str(secp256_generator_order, secp256_order, 16);
+    mpz_set_str(secp256_curve_prime, secp256_prime, 16);
     mpz_set_str(secp256_generator.x, secp256_gx, 16);
     mpz_set_str(secp256_generator.y, secp256_gy, 16);
     mpz_set_str(a, secp256_a, 16);
@@ -99,7 +100,7 @@ struct ECDSA_signature ecdsa_sign_secp256r1(
     mpz_export(pms_bytes, NULL, 1, 1, 1, 0, per_message_secret);
     mpz_invert(per_message_secret, per_message_secret, secp256_generator_order);
 
-    R = double_and_add_mult(secp256_generator, pms_bytes, secp256_generator_order, a, sizeof(pms_bytes));
+    R = double_and_add_mult(secp256_generator, pms_bytes, secp256_curve_prime, a, sizeof(pms_bytes));
     // note: we can skip steps 6 since affine representation in my implementation is already used
     // note 2: we don't need another r variable since we don't need the point anymore
     mpz_mod(R.x, R.x, secp256_generator_order);
@@ -126,7 +127,7 @@ struct ECDSA_signature ecdsa_sign_secp256r1(
     out.r = r_bytes;
     out.s = s_bytes;
 
-    mpz_clears(hash_integer, per_message_secret, s, secp256_generator_order, a, R.x, R.y, secp256_generator.x, secp256_generator.y, NULL);
+    mpz_clears(hash_integer, per_message_secret, s, secp256_generator_order, secp256_curve_prime, a, R.x, R.y, secp256_generator.x, secp256_generator.y, NULL);
     mpz_clear(private_key_int);
     gmp_randclear(gmp_rs);
 
