@@ -63,7 +63,7 @@ Vector asn1_der_wrap_element(const unsigned char * data, size_t n, enum asn1_tag
     } else {
         out[1] = 0x80 | (added_len_bytes - 1);
         
-        for (int i = added_len_bytes - 1; i >= 0; i--) {
+        for (int i = added_len_bytes - 2; i >= 0; i--) {
            out[2 + i] = (n >> (i*8)) & 0xFF;
         }
     }
