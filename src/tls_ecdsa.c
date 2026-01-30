@@ -22,6 +22,9 @@ ECDSA-Sig-Value ::= SEQUENCE {
 where r and s are the 2 return values from ecdsa sign as defined in FIPS 186-5
 */
 Vector asn1_wrap_secp256r1_sign(enum hmac_supported_hashes hash_type, const unsigned char * data, size_t n, struct secp_key private_key) {
+    assert(data);
+    assert(private_key.private_key);
+    
     struct ECDSA_signature signature = ecdsa_sign_secp256r1(hash_type, data, n, private_key);
     assert(signature.r);
     assert(signature.s);

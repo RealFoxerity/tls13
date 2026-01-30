@@ -29,8 +29,8 @@ static const char tags_constructed[] = {
     //[ASN1_END_OF_CONTENT] = ASN1_PRIMITVE,
     [ASN1_BOOLEAN] = ASN1_PRIMITVE,
     [ASN1_INTEGER] = ASN1_PRIMITVE,
-    [ASN1_BITSTRING] = ASN1_PRIMITVE, // DER enforces primitive form, BER supports both
-    [ASN1_OCTETSTRING] = ASN1_PRIMITVE, // same
+    [ASN1_BIT_STRING] = ASN1_PRIMITVE, // DER enforces primitive form, BER supports both
+    [ASN1_OCTET_STRING] = ASN1_PRIMITVE, // same
     [ASN1_NULL] = ASN1_PRIMITVE,
     [ASN1_OBJECT_IDENTIFIER] = ASN1_PRIMITVE,
     [ASN1_OBJECT_DESCRIPTOR] = ASN1_BOTH,
@@ -73,4 +73,97 @@ Vector asn1_der_wrap_element(const unsigned char * data, size_t n, enum asn1_tag
         .len = 1 + added_len_bytes + n
     };
     return rec;
+}
+
+struct asn1_node asn1_get_next(const unsigned char * object_start, size_t maxlen) {
+    if (maxlen < 3) return (struct asn1_node) {0};
+
+    size_t offset = 0;
+
+    struct asn1_node out = {0};
+    out.tag_class = object_start[0] >> 6;
+    if (object_start[0] & 0x20) out.constructed = 1;
+    if ((object_start[0] & 0x1F) == 0x1F) { // long mode tag id
+        do {
+            if (++offset >= maxlen) return (struct asn1_node) {0};
+            out.tag <<= 7;
+            out.tag |= object_start[offset] & 0x7F;
+        } while(object_start[offset] & 0x80);
+    } else out.tag = object_start[0] & 0x1F;
+
+    if (++offset >= maxlen) return (struct asn1_node) {0};
+    if (object_start[offset] == 0x80 || object_start[offset] == 0xFF) return (struct asn1_node) {0}; // we don't support indefinite, 0xFF is reserved
+
+    if (object_start[offset] & 0x80) {
+        int length_bytes = object_start[offset] & 0x7F;
+
+        if (length_bytes > 9) return (struct asn1_node) {0}; // resulting length would be larger than 64 bit int, probably not correct :P
+
+        for (int i = 0; i < length_bytes; i++) {
+            if (++offset >= maxlen) return (struct asn1_node) {0};
+            out.len <<= 8;
+            out.len |= object_start[offset];
+        }
+    } else {
+        out.len = object_start[offset] & 0x7F;
+    }
+
+    if (++offset >= maxlen) return (struct asn1_node) {0};
+        
+    out.header_len = offset;
+    if (out.len + out.header_len > maxlen) return (struct asn1_node) {0};
+
+
+    out.data = object_start + offset;
+    return out;
+}
+
+#include <stdio.h>
+
+
+static char asn1_print_node(const unsigned char * data, size_t *offset, size_t n) {
+    static int tab_depth = 0;
+    assert(data);
+    assert(offset);
+
+    if (*offset >= n) return 0;
+
+    struct asn1_node node = asn1_get_next(data + *offset, n-*offset);
+    if (node.data == NULL || node.len == 0) return 0;
+
+    *offset = node.data - data;
+
+    for (int i = 0; i < tab_depth; i++) fprintf(stderr,"  ");
+
+    fprintf(stderr, "t %04x:%s, l %lu%s", node.tag, 
+            node.tag_class == ASN1_TAG_UNIVERSAL ? "UNIV":
+            node.tag_class == ASN1_TAG_APPLICATION ? "APP":
+            node.tag_class == ASN1_TAG_CONTEXT_SPECIFIC ? "CTX": 
+            "priv",
+        node.len, 
+            node.constructed ? ":\n":
+            ", data: "
+    );
+
+    if (!node.constructed) {
+        for (size_t i = 0; i < node.len; i++) {
+            fprintf(stderr, "%02hhx:", node.data[i]);
+        }
+        putc('\n', stderr);
+        *offset += node.len;
+    } else {
+        tab_depth ++;
+        size_t old_off = *offset;
+        while (*offset - old_off < node.len) {
+            if (!asn1_print_node(data, offset, n)) return 0;
+        }
+        tab_depth --;
+    }
+    return 1;
+}
+
+void asn1_print_structure(const unsigned char * data, size_t n) {
+    fprintf(stderr, "\n\n----- ASN.1 STRUCTURE -----\n");
+    size_t off = 0;
+    while (off < n) asn1_print_node(data, &off, n);
 }

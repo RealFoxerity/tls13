@@ -16,13 +16,13 @@
 
 #include <unistd.h> // close, access
 
-#include "crypto/include/aes.h"
 #include "include/tls.h"
 #include "include/tls_internal.h"
 #include "include/tls_extensions.h"
 #include "include/memstructs.h"
 #include "crypto/include/sha2.h"
 #include "include/tls_crypto.h"
+#include "include/tls_packets.h"
 
 #define MIN(a,b) (a>b?b:a)
 #define MAX(a,b) (a<b?b:a)
@@ -62,13 +62,15 @@ size_t print_hex_buf(const unsigned char * buf, size_t len) {
 #define MAX_REQUEST_SIZE 0x100000 // 1MB
 
 void cleanup();
+char cleaned_up = 0;
 void ssl_cleanup() {
+    if (cleaned_up) return;
     cleanup();
     free(tls_packet_buffer);
+    cleaned_up = 1;
 }
 
 int decrypt_tls(unsigned char* buffer, size_t len);
-int encrypt_tls_packet(unsigned char wrapped_record_type, unsigned char original_packet_type, unsigned char * restrict out_buf, size_t out_buf_len, const unsigned char * restrict input_buf, size_t in_buf_len);
 void construct_alert(unsigned char alert_desc, unsigned char alert_level, unsigned char* buffer, size_t bufsiz) {
     assert(bufsiz >= sizeof(TLS_record_header)+sizeof(struct Alert));
     memset(buffer, 0, bufsiz);
@@ -78,9 +80,6 @@ void construct_alert(unsigned char alert_desc, unsigned char alert_level, unsign
     ((struct Alert*)(buffer+sizeof(TLS_record_header)))->alert_level = alert_level;
     ((struct Alert*)(buffer+sizeof(TLS_record_header)))->alert_description = alert_desc;
 }
-
-int construct_encrypted_extensions(unsigned char * buffer, size_t len);
-int construct_certificate(unsigned char * buffer, size_t len);
 
 void exit_handler(int signal) {
     fprintf(stderr, "Caught Ctrl+C, exiting ssl wrapper\n");
@@ -157,15 +156,21 @@ char ssl_wrapper(int socket_fd, void (*wrapped_func)(int socket_fd)) {
                         break;
                     case TS_SETTING_UP_SERVER_SIDE: // sending the actual server hello, change cipher spec, wrapped records, encrypted extensions
                         send(socket_fd, tls_packet_buffer, ret, 0);
+                        
                         ret = construct_encrypted_extensions(tls_packet_buffer, MAX_REQUEST_SIZE);
                         if (ret < 0) goto alert;
                         tls_context.txd_message_counter ++;
                         send(socket_fd, tls_packet_buffer, ret, 0);
+                        
                         ret = construct_certificate(tls_packet_buffer, MAX_REQUEST_SIZE);
                         if (ret < 0) goto alert;
                         tls_context.txd_message_counter ++;
                         send(socket_fd, tls_packet_buffer, ret, 0);
-                        // certificate verify
+                        
+                        ret = construct_certificate_verify(tls_packet_buffer, MAX_REQUEST_SIZE);
+                        if (ret < 0) goto alert;
+                        tls_context.txd_message_counter ++;
+                        send(socket_fd, tls_packet_buffer, ret, 0);
                     default:
                         break;
                 }
@@ -394,42 +399,31 @@ void free_client_hello(struct ClientHello CH) {
 }
 
 int construct_server_hello(unsigned char * buffer, size_t len, struct ClientHello CH, char is_retry_request) {
-    if (/* is_retry_request && */ tls_context.chosen_cipher_suite == 0) { // implicitally is_retry_request since otherwise ccs wouldn't be 0
-        tls_context.chosen_cipher_suite = TLS_AES_256_GCM_SHA384;
-    }
-        
     if (tls_context.chosen_group == 0) {
         tls_context.chosen_group = NG_SECP256R1;
     }
 
-    if (is_retry_request) {
-        unsigned char * special_mes = NULL;
-        switch (tls_context.chosen_cipher_suite) {
-            case TLS_AES_128_GCM_SHA256:                
-                // see https://www.rfc-editor.org/rfc/rfc8446#section-4.4.1
-                special_mes = calloc(sizeof(TLS_handshake) + SHA256_HASH_BYTES, 1);
-                assert(special_mes);
+    if (is_retry_request) { // TODO: maybe refactor/completely rewrite?
+        // see https://www.rfc-editor.org/rfc/rfc8446#section-4.4.1
 
-                (*(TLS_handshake*)special_mes).msg_type = HT_MESSAGE_HASH;
-                (*(TLS_handshake*)special_mes).length = htons(SHA256_HASH_BYTES);
-                sha256_finalize(&tls_context.transcript_hash_ctx, special_mes + sizeof(TLS_handshake));
-                sha256_init(&tls_context.transcript_hash_ctx);
-                sha256_update(&tls_context.transcript_hash_ctx, special_mes, sizeof(TLS_handshake) + SHA256_HASH_BYTES);
-                break;
-            case TLS_AES_256_GCM_SHA384:
-                special_mes = calloc(sizeof(TLS_handshake) + SHA384_HASH_BYTES, 1);
-                assert(special_mes);
+        int hash_len = get_transcript_hash_len();
+        if (hash_len < 0) return hash_len;
 
-                (*(TLS_handshake*)special_mes).msg_type = HT_MESSAGE_HASH;
-                (*(TLS_handshake*)special_mes).length = htons(SHA384_HASH_BYTES);
-                sha384_finalize(&tls_context.transcript_hash_ctx, special_mes + sizeof(TLS_handshake));
-                sha384_init(&tls_context.transcript_hash_ctx);
-                sha384_update(&tls_context.transcript_hash_ctx, special_mes, sizeof(TLS_handshake) + SHA384_HASH_BYTES);
-                break;
-            default:
-                fprintf(stderr, "Chosen unsupported cipher suite (how did we get here?)\n");
-                return -AD_HANDSHAKE_FAILURE;
-        }
+        unsigned char * special_mes = calloc(sizeof(TLS_handshake) + hash_len, 1);
+        assert(special_mes);
+
+        (*(TLS_handshake*)special_mes).msg_type = HT_MESSAGE_HASH;
+        (*(TLS_handshake*)special_mes).length = htons(hash_len);
+
+        Vector hash = get_transcript_hash();
+        if ((long)hash.len < 0) return hash_len;
+        assert(hash.data);
+
+        memcpy(special_mes + sizeof(TLS_handshake), hash.data, hash_len);
+        free(hash.data);
+        init_transcript_hash();
+        update_transcript_hash(special_mes, sizeof(TLS_handshake) + hash_len);
+        
         free(special_mes);
     }
     
@@ -538,18 +532,8 @@ int construct_server_hello(unsigned char * buffer, size_t len, struct ClientHell
     //    *(short*)&(buffer[bufoff]) = htons(SS_ECDSA_SECP256R1_SHA256);
     //}
 
-    switch (tls_context.chosen_cipher_suite) {
-        case TLS_AES_128_GCM_SHA256:
-            sha256_update(&tls_context.transcript_hash_ctx, buffer + sizeof(TLS_record_header), final_size-sizeof(TLS_record_header));
-            break;
-        case TLS_AES_256_GCM_SHA384:
-            sha384_update(&tls_context.transcript_hash_ctx, buffer + sizeof(TLS_record_header), final_size-sizeof(TLS_record_header));
-            print_hex_buf(buffer+sizeof(TLS_record_header), final_size - sizeof(TLS_record_header));
-            break;
-        default:
-            fprintf(stderr, "Chosen unsupported cipher suite (how did we get here?)\n");
-            return -AD_HANDSHAKE_FAILURE;
-    }
+    update_transcript_hash(buffer + sizeof(TLS_record_header), final_size-sizeof(TLS_record_header));
+    print_hex_buf(buffer+sizeof(TLS_record_header), final_size - sizeof(TLS_record_header));
     return final_size;
 }
 
@@ -603,19 +587,18 @@ int handshake_tls(unsigned char * buffer, size_t record_end_offset, size_t len) 
             return ret;
         }
         if (ret == 1) current_state = TS_SETTING_UP_SERVER_SIDE;
-        switch (tls_context.chosen_cipher_suite) {
-            case TLS_AES_128_GCM_SHA256:
-                if (trying_helloretry != 2) sha256_init(&tls_context.transcript_hash_ctx);
-                sha256_update(&tls_context.transcript_hash_ctx, buffer + record_end_offset, len);
-                break;
-            case TLS_AES_256_GCM_SHA384:
-                if (trying_helloretry != 2) sha384_init(&tls_context.transcript_hash_ctx);
-                sha384_update(&tls_context.transcript_hash_ctx, buffer + record_end_offset, len);
-                break;
-            default:
-                fprintf(stderr, "Chosen unsupported cipher suite (how did we get here?)\n");
-                return -AD_HANDSHAKE_FAILURE;
+        
+        if (tls_context.chosen_cipher_suite == 0) { // implicitally doing helloretryrequest since otherwise ccs wouldn't be 0
+            tls_context.chosen_cipher_suite = TLS_AES_256_GCM_SHA384;
         }
+
+        if (trying_helloretry != 2) {
+            ret = init_transcript_hash();
+            if (ret != 0) return ret;
+        }
+        ret = update_transcript_hash(buffer+record_end_offset, len);
+        if (ret != 0) return ret;
+        
         int out = construct_server_hello(buffer, MAX_REQUEST_SIZE, CH_packet, trying_helloretry == 1);
         if (trying_helloretry != 1) {
             generate_server_secrets(&tls_context);
@@ -634,99 +617,6 @@ int handshake_tls(unsigned char * buffer, size_t record_end_offset, size_t len) 
     }
     // blah blah blah current_state = TS_READY
     return -AD_UNEXPECTED_MESSAGE; // no way we get here
-}
-
-/* https://www.rfc-editor.org/rfc/rfc8446#section-5.2
-      struct {
-          opaque content[TLSPlaintext.length];
-          ContentType type;
-          uint8 zeros[length_of_padding];
-      } TLSInnerPlaintext;
-      struct {
-          ContentType opaque_type = application_data; // 23
-          ProtocolVersion legacy_record_version = 0x0303; // TLS v1.2
-          uint16 length;
-          opaque encrypted_record[TLSCiphertext.length];
-      } TLSCiphertext;
-*/
-
-
-// wrapped record type (encrypted packets end with message type), inner handshake message type (so we don't have to wrap our packets ourselves), output buffer, len, input data buffer, len
-int encrypt_tls_packet(unsigned char wrapped_record_type, unsigned char handshake_message_type, unsigned char * restrict out_buf, size_t out_buf_len, const unsigned char * restrict input_buf, size_t in_buf_len) {
-    assert(in_buf_len < 1<<16);
-    size_t aead_tag_len = 0;
-    switch (tls_context.chosen_cipher_suite) {
-        case TLS_AES_128_GCM_SHA256:
-        case TLS_AES_256_GCM_SHA384:
-            aead_tag_len = GCM_BLOCK_SIZE;
-            break;
-        default:
-            fprintf(stderr, "Chosen unsupported cipher suite (how did we get here?)\n");
-            return -AD_HANDSHAKE_FAILURE;
-    }
-
-    size_t pad_bytes = 0; // selected 0 because it is not required, see https://www.rfc-editor.org/rfc/rfc8446#section-5.4
-    size_t wrapped_len = sizeof(TLS_handshake) + in_buf_len + 1 + pad_bytes;
-    unsigned char * input_buf_wrapped = calloc(wrapped_len, 1);
-    *(TLS_handshake*)input_buf_wrapped = (TLS_handshake) {
-        .msg_type = handshake_message_type,
-        .length = htons(in_buf_len)
-    };
-
-    assert(input_buf_wrapped);
-    memcpy(input_buf_wrapped + sizeof(TLS_handshake), input_buf, in_buf_len);
-    input_buf_wrapped[sizeof(TLS_handshake)+in_buf_len] = wrapped_record_type;
-
-    size_t ret_len = wrapped_len + aead_tag_len + sizeof(TLS_record_header);
-    assert(out_buf_len >= ret_len);
-    memset(out_buf, 0, ret_len);
-
-    *(TLS_record_header *)out_buf = (TLS_record_header) {
-        .content_type = CT_APPLICATION_DATA,
-        .legacy_record_version = htons(TLS12_COMPAT_VERSION),
-        .length = htons(wrapped_len + aead_tag_len)
-    };
-
-    unsigned char * nonce = NULL;
-    uint8_t * ciphertext = NULL;
-
-    // https://www.rfc-editor.org/rfc/rfc8446#section-5.2
-    switch (tls_context.chosen_cipher_suite) {
-        case TLS_AES_128_GCM_SHA256:
-        case TLS_AES_256_GCM_SHA384:
-            // https://www.rfc-editor.org/rfc/rfc8446#section-5.3
-            nonce = calloc(AES_GCM_DEFAULT_IV_LEN, 1); // should be max of 8 or N_MIN (in this case AES_GCM_DEFAULT_IV_LEN since AES-GCM takes any length)
-            assert(nonce);
-            *(uint64_t*)(nonce + AES_GCM_DEFAULT_IV_LEN - sizeof(uint64_t)) = htobe64(tls_context.txd_message_counter); // network byte order to be exact, no such thing as htonll
-            for (int i = 0; i < AES_GCM_DEFAULT_IV_LEN; i++) {
-                nonce[i] ^= ((uint8_t *)(tls_context.server_write_iv.data))[i];
-            }
-    }
-    switch (tls_context.chosen_cipher_suite) {
-        case TLS_AES_128_GCM_SHA256:
-            ciphertext = aes_128_gcm_enc(input_buf_wrapped, wrapped_len, 
-                out_buf, sizeof(TLS_record_header), 
-                nonce, AES_GCM_DEFAULT_IV_LEN, 
-                out_buf + sizeof(TLS_record_header) + wrapped_len, 
-                tls_context.server_write_key.data);
-            assert(ciphertext);    
-            break;
-        case TLS_AES_256_GCM_SHA384:
-            ciphertext = aes_256_gcm_enc(input_buf_wrapped, wrapped_len, 
-                out_buf, sizeof(TLS_record_header), 
-                nonce, AES_GCM_DEFAULT_IV_LEN, 
-                out_buf + sizeof(TLS_record_header) + wrapped_len, 
-                tls_context.server_write_key.data);
-            assert(ciphertext);  
-            break;
-    }
-
-    memcpy(out_buf+sizeof(TLS_record_header), ciphertext, wrapped_len);
-
-    free(input_buf_wrapped);
-    free(nonce);
-    free(ciphertext);
-    return ret_len;
 }
 
 int decrypt_tls(unsigned char* buffer, size_t len) { // TODO: implement alerts, implement actually valid bounds checking
@@ -779,7 +669,6 @@ int decrypt_tls(unsigned char* buffer, size_t len) { // TODO: implement alerts, 
         case CT_ALERT:
             fprintf(stderr, "Recieved ALERT: level: 0x%02hhx, desc 0x%02hhx\n", *(buffer+sizeof(TLS_record_header)),*(buffer+sizeof(TLS_record_header)+1));
             return 0xFFFFFFFF;
-            break;
         case CT_HANDSHAKE:
             if (len < sizeof(TLS_record_header)+sizeof(TLS_handshake)) return -AD_DECODE_ERROR;
             int out_len = handshake_tls(buffer, record_offset, record.length);
@@ -791,37 +680,6 @@ int decrypt_tls(unsigned char* buffer, size_t len) { // TODO: implement alerts, 
 
     
     return 0;
-}
-
-int construct_encrypted_extensions(unsigned char * buffer, size_t len) {
-    static const unsigned char ee_packet[] = "\x00\x00";
-    return encrypt_tls_packet(CT_HANDSHAKE, HT_ENCRYPTED_EXTENSIONS, buffer, len, ee_packet, sizeof(ee_packet) - 1);
-}
-
-int construct_certificate(unsigned char * buffer, size_t len) {
-    size_t wrapped_cert_len = 
-        sizeof(struct ServerCertificatesHeader) + 
-        3 + // uint24_t for the certificate length
-        tls_context.cert_len +
-        2 + // uint16_t for the extension length
-        0 // we don't use any extensions
-    ;
-    unsigned char * wrapped_cert = calloc(wrapped_cert_len, 1);
-    
-    assert(wrapped_cert);
-
-    *(struct ServerCertificatesHeader*) wrapped_cert = (struct ServerCertificatesHeader) {
-        .certificate_request_context = 0,
-        .cert_data_len = htons(wrapped_cert_len - sizeof(struct ServerCertificatesHeader))
-    };
-    *(unsigned short*)&wrapped_cert[sizeof(struct ServerCertificatesHeader)+1] = htons(tls_context.cert_len); // uint24_t, need to skip the 1 byte
-    memcpy(wrapped_cert + sizeof(struct ServerCertificatesHeader) + 3, tls_context.cert, tls_context.cert_len);
-
-    // don't need to set uint16_t for extension length since they are 0 anyway
-
-    int ret = encrypt_tls_packet(CT_HANDSHAKE, HT_CERTIFICATE, buffer, len, wrapped_cert, wrapped_cert_len);
-    free(wrapped_cert);
-    return ret;
 }
 
 void cleanup() {
@@ -844,4 +702,6 @@ void cleanup() {
     free(tls_context.client_application_secret_0.data);
     free(tls_context.client_application_iv.data);
     free(tls_context.cert);
+    free(tls_context.cert_keys.private_key.data);
+    free(tls_context.cert_keys.public_key.data);
 }

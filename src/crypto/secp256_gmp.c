@@ -13,17 +13,7 @@
 //    
 //}
 
-
-__attribute__((warn_unused_result)) struct secp_key secp256_gen_public_key() {
-    // TODO: use csrng, implement https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.186-5.pdf A.2.1 - ECDSA Key Pair Generation using Extra Random Bits
-    // this is just a testing setup
-    unsigned char * privkey = NULL;
-    privkey = malloc(SECP256_PRIVKEY_SIZE);
-    assert(privkey);
-
-    for (int i = 0; i < SECP256_PRIVKEY_SIZE/2; i++) { // doing a unsigned short cast because modulo like this isn't exactly safe
-        ((unsigned short*)privkey)[i] = rand()%(1<<16);
-    }
+__attribute__((warn_unused_result)) struct secp_key secp256_get_public_key_from_private(unsigned char * privkey) {
 
     elpoint generator, pubkey_point;
     // mpz_t order, b;
@@ -65,6 +55,19 @@ __attribute__((warn_unused_result)) struct secp_key secp256_gen_public_key() {
         .private_key = privkey,
         .public_key = pubkey
     };
+}
+
+__attribute__((warn_unused_result)) struct secp_key secp256_gen_public_key() {
+    // TODO: use csrng, implement https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.186-5.pdf A.2.1 - ECDSA Key Pair Generation using Extra Random Bits
+    // this is just a testing setup
+    unsigned char * privkey = NULL;
+    privkey = malloc(SECP256_PRIVKEY_SIZE);
+    assert(privkey);
+
+    for (int i = 0; i < SECP256_PRIVKEY_SIZE/2; i++) { // doing a unsigned short cast because modulo like this isn't exactly safe
+        ((unsigned short*)privkey)[i] = rand()%(1<<16);
+    }
+    return secp256_get_public_key_from_private(privkey);
 }
 
 static inline elpoint get_point_from_pubkey(const unsigned char * public_key) {

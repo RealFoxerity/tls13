@@ -352,7 +352,9 @@ struct tls_context {
     // certificates
     unsigned char * cert; // the der certificate that's sent across the network
     size_t cert_len;
-    
+
+    Keys cert_keys; // from private cert der
+    enum NamedGroups cert_key_type;
 };
 extern struct tls_context tls_context;
 

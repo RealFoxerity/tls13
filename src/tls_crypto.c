@@ -1,3 +1,4 @@
+#include "include/tls_crypto.h"
 #include "crypto/include/aes.h"
 #include "crypto/include/hmac.h"
 #include "include/tls_internal.h"
@@ -9,6 +10,7 @@
 
 #include <stdio.h>
 #include <assert.h>
+#include <stdlib.h>
 
 // TODO: if/when implementing PSK change first HKDF-extract to not use an empty block for IKM for PSK
 void generate_server_secrets(struct tls_context * tls_context) { // has to be a different function since it requires the transcript hash to be up-to-date
@@ -215,23 +217,15 @@ int generate_server_keys(struct tls_context * tls_context) {
 
 void generate_traffic_keys(struct tls_context * tls_context, Vector client_secret, Vector server_secret) {
     // https://www.rfc-editor.org/rfc/rfc8446#section-7.3
-    enum hmac_supported_hashes hash_type;
-    size_t key_len, iv_len;
-    switch (tls_context->chosen_cipher_suite) {
-        case TLS_AES_128_GCM_SHA256:
-            hash_type = HMAC_SHA2_256;
-            key_len = AES_128_KEY_LEN;
-            iv_len = AES_GCM_DEFAULT_IV_LEN;
-            break;
-        case TLS_AES_256_GCM_SHA384:
-            hash_type = HMAC_SHA2_384;
-            key_len = AES_256_KEY_LEN;
-            iv_len = AES_GCM_DEFAULT_IV_LEN;
-            break;
-        default:
-            fprintf(stderr, "Chosen unsupported cipher suite (how did we get here?)\n");
-            exit(-AD_HANDSHAKE_FAILURE);
-    }
+    enum hmac_supported_hashes hash_type = get_transcript_hash_type();
+    if (hash_type < 0) abort();
+    
+    int iv_len = get_cipher_iv_len();
+    if (iv_len < 0) abort();
+
+    int key_len = get_cipher_key_len();
+    if (hash_type < 0) abort();
+    
     struct prk cs = (struct prk) {
         .prk = client_secret.data,
         .prk_len = client_secret.len
@@ -281,4 +275,106 @@ void generate_traffic_keys(struct tls_context * tls_context, Vector client_secre
         fprintf(stderr, "%02hhx ", ((unsigned char *)tls_context->client_write_iv.data)[i]);
     }
     fprintf(stderr, "\n");
+}
+
+int get_cipher_iv_len() {
+    switch (tls_context.chosen_cipher_suite) {
+        case TLS_AES_128_GCM_SHA256:
+        case TLS_AES_256_GCM_SHA384:
+            return AES_GCM_DEFAULT_IV_LEN;
+        default:
+           fprintf(stderr, "Chosen unsupported cipher suite (how did we get here?)\n");
+            return -AD_HANDSHAKE_FAILURE;
+    }
+}
+
+int get_cipher_key_len() {
+    switch (tls_context.chosen_cipher_suite) {
+        case TLS_AES_128_GCM_SHA256:
+            return AES_128_KEY_LEN;
+        case TLS_AES_256_GCM_SHA384:
+            return AES_256_KEY_LEN;
+        default:
+            fprintf(stderr, "Chosen unsupported cipher suite (how did we get here?)\n");
+            return -AD_HANDSHAKE_FAILURE;
+    }
+}
+
+int get_transcript_hash_len() {
+    switch (tls_context.chosen_cipher_suite) {
+        case TLS_AES_128_GCM_SHA256:
+            return SHA256_HASH_BYTES;
+        case TLS_AES_256_GCM_SHA384:
+            return SHA384_HASH_BYTES;
+        default:
+            fprintf(stderr, "Chosen unsupported cipher suite (how did we get here?)\n");
+            return -AD_HANDSHAKE_FAILURE;
+    }
+}
+
+enum hmac_supported_hashes get_transcript_hash_type() {
+    switch (tls_context.chosen_cipher_suite) {
+        case TLS_AES_128_GCM_SHA256:
+            return HMAC_SHA2_256;
+        case TLS_AES_256_GCM_SHA384:
+            return HMAC_SHA2_384;
+        default:
+            fprintf(stderr, "Chosen unsupported cipher suite (how did we get here?)\n");
+            return -AD_HANDSHAKE_FAILURE;
+    }
+}
+
+int init_transcript_hash() {
+    switch (tls_context.chosen_cipher_suite) {
+        case TLS_AES_128_GCM_SHA256:
+            sha256_init(&tls_context.transcript_hash_ctx);
+            break;
+        case TLS_AES_256_GCM_SHA384:
+            sha384_init(&tls_context.transcript_hash_ctx);
+            break;
+        default:
+            fprintf(stderr, "Chosen unsupported cipher suite (how did we get here?)\n");
+            return -AD_HANDSHAKE_FAILURE;
+    }
+
+    return 0;
+}
+int update_transcript_hash(const unsigned char * buffer, size_t n) {
+    switch (tls_context.chosen_cipher_suite) {
+        case TLS_AES_128_GCM_SHA256:
+            sha256_update(&tls_context.transcript_hash_ctx, buffer, n);
+            break;
+        case TLS_AES_256_GCM_SHA384:
+            sha384_update(&tls_context.transcript_hash_ctx, buffer, n);
+            break;
+        default:
+            fprintf(stderr, "Chosen unsupported cipher suite (how did we get here?)\n");
+            return -AD_HANDSHAKE_FAILURE;
+    }
+    return 0;
+}
+
+Vector get_transcript_hash() {
+    Vector out;
+    switch (tls_context.chosen_cipher_suite) {
+        case TLS_AES_128_GCM_SHA256:
+            out.len = SHA256_HASH_BYTES;
+            out.data = malloc(SHA256_HASH_BYTES);
+            assert(out.data);
+            sha256_finalize(&tls_context.transcript_hash_ctx, out.data);
+            break;
+        case TLS_AES_256_GCM_SHA384:
+            out.len = SHA384_HASH_BYTES;
+            out.data = malloc(SHA384_HASH_BYTES);
+            assert(out.data);
+            sha384_finalize(&tls_context.transcript_hash_ctx, out.data);
+            break;
+        default:
+            fprintf(stderr, "Chosen unsupported cipher suite (how did we get here?)\n");
+            return (Vector) {
+                .data = NULL,
+                .len = -AD_HANDSHAKE_FAILURE
+            };
+    }
+    return out;
 }
