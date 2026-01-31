@@ -1,42 +1,35 @@
 CC=gcc
-CFLAGS=-O0 -Og -g -Wall -fPIC
-LDFLAGS=-lgmp
-TLS_WRAPPER_OBJS=$(shell find src/ -maxdepth 1 -name '*.c' | grep -v test | sed 's/\.c$$/.o/g')
-CRYPTO_OBJS=$(shell find src/crypto -name '*.c' | grep -v test | sed 's/\.c$$/.o/g')
-SERVER_OBJS=$(shell find src/http -name '*.c' | grep -v test | sed 's/\.c$$/.o/g')
-#src/crypto/*.o: CFLAGS+=-O3
+CFLAGS=-O0 -Og -g -Wall
+LDFLAGS=-Ltls/build -Lcrypto/build -lbadtls -lbadcrypto
+OBJS=$(shell find src -name '*.c' | grep -v test | sed 's/\.c$$/.o/g')
 
-all: $(SERVER_OBJS) build/libbadtls.so build/libbadcrypto.so tests
+all: tls/build/libbadtls.so crypto/build/libbadcrypto.so $(OBJS)
 	mkdir -p build
-	$(CC) $(CFLAGS) $(LDFLAGS) $(SERVER_OBJS) -Lbuild -lbadtls -lbadcrypto -o build/http
-	
+
+	cp tls/build/libbadtls.so crypto/build/libbadcrypto.so build
+
+	$(CC) $(CFLAGS) $(OBJS) -o build/http $(LDFLAGS)
+
 	openssl ecparam -name prime256v1 -genkey -outform der -out build/test_secp256r1_priv.der
 	openssl req -new -x509 -outform der -key build/test_secp256r1_priv.der -out build/test_secp256r1_pub.der -subj "/C=US/ST=State/L=City/O=Organization/OU=Unit/CN=CommonName"
 
-	#echo Setting CAP_NET_BIND_SERVICE...; (sudo setcap cap_net_bind_service=ep build/http || echo Failed) # to be able to run the server without root, commented out because it doesn't work on NFS (my rootfs)
+.PHONY: tls/build/libbadtls.so crypto/build/libbadcrypto.so
+tls/build/libbadtls.so:
+	$(MAKE) -C tls
+crypto/build/libbadcrypto.so:
+	$(MAKE) -C crypto
 
-build/libbadtls.so: $(TLS_WRAPPER_OBJS)
-	mkdir -p build
-	$(CC) $(CFLAGS) $(LDFLAGS) $(TLS_WRAPPER_OBJS) -shared -o build/libbadtls.so
-
-build/libbadcrypto.so: $(CRYPTO_OBJS)
-	mkdir -p build
-	$(CC) $(CFLAGS) $(LDFLAGS) $(CRYPTO_OBJS) -shared -o build/libbadcrypto.so
-
-tests: build/tests/crypto build/tests/tls
-build/tests/crypto: build/libbadcrypto.so src/crypto/test_crypto_suite.o
-	mkdir -p build/tests
-	$(CC) $(CFLAGS) $(LDFLAGS) src/crypto/test_crypto_suite.o -Lbuild -lbadcrypto -o build/tests/crypto
-
-build/tests/tls: build/libbadcrypto.so build/libbadtls.so src/test_tls_funcs.o
-	mkdir -p build/tests
-	$(CC) $(CFLAGS) $(LDFLAGS) src/test_tls_funcs.o -Lbuild -lbadcrypto -lbadtls -o build/tests/tls
-
+tests:
+	$(MAKE) -C tls tests
+	$(MAKE) -C crypto tests
 
 release: all
 	strip -s build/http
 	#echo Setting CAP_NET_BIND_SERVICE...; (sudo setcap cap_net_bind_service=ep build/http || echo Failed) # strip removes caps
 
+.PHONY: clean
 clean:
 	rm -rf build
-	rm -f $(shell find . -name "*.o")
+	rm -f $(shell find src -name "*.o")
+	$(MAKE) -C tls clean
+	$(MAKE) -C crypto clean

@@ -1,6 +1,6 @@
-#include "crypto/include/ecdsa_secp256.h"
-#include "crypto/include/hmac.h"
-#include "crypto/include/secp256.h"
+#include "../crypto/include/ecdsa_secp256.h"
+#include "../crypto/include/hmac.h"
+#include "../crypto/include/secp256.h"
 #include "include/asn.1.h"
 
 #include "include/tls_crypto.h"

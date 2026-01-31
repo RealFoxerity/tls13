@@ -1,11 +1,11 @@
 #include "include/tls_crypto.h"
-#include "crypto/include/aes.h"
-#include "crypto/include/hmac.h"
+#include "../crypto/include/aes.h"
+#include "../crypto/include/hmac.h"
 #include "include/tls_internal.h"
 #include "include/memstructs.h"
-#include "crypto/include/secp256.h"
-#include "crypto/include/sha2.h"
-#include "crypto/include/hkdf.h"
+#include "../crypto/include/secp256.h"
+#include "../crypto/include/sha2.h"
+#include "../crypto/include/hkdf.h"
 #include "include/hkdf_tls.h"
 
 #include <stdio.h>
@@ -324,7 +324,10 @@ enum hmac_supported_hashes get_transcript_hash_type() {
     }
 }
 
+size_t print_hex_buf(const unsigned char * buf, size_t len);
+
 int init_transcript_hash() {
+    fprintf(stderr, "Init transcript hash\n");
     switch (tls_context.chosen_cipher_suite) {
         case TLS_AES_128_GCM_SHA256:
             sha256_init(&tls_context.transcript_hash_ctx);
@@ -340,6 +343,8 @@ int init_transcript_hash() {
     return 0;
 }
 int update_transcript_hash(const unsigned char * buffer, size_t n) {
+    fprintf(stderr, "Updating transcript hash with:\n");
+    print_hex_buf(buffer, n);
     switch (tls_context.chosen_cipher_suite) {
         case TLS_AES_128_GCM_SHA256:
             sha256_update(&tls_context.transcript_hash_ctx, buffer, n);

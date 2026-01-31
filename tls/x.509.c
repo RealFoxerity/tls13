@@ -1,6 +1,6 @@
 #include "include/x.509.h"
 
-#include "crypto/include/secp256.h"
+#include "../crypto/include/secp256.h"
 #include "include/memstructs.h"
 #include "include/x9.62.h"
 #include "include/asn.1.h"

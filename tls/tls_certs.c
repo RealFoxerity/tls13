@@ -4,7 +4,8 @@
 #include <errno.h>
 #include <assert.h>
 
-#include "crypto/include/secp256.h"
+#include "../crypto/include/hmac.h"
+#include "../crypto/include/secp256.h"
 #include "include/asn.1.h"
 #include "include/memstructs.h"
 #include "include/tls.h"
@@ -55,11 +56,24 @@ char ssl_load_cert(const char * cert_path, const char * privkey_path) {
 
     switch (curve) {
         case X962_PRIME_CURVE_NAME_PRIME256V1:
+            assert(tls_context.cert_keys.private_key.len == SECP256_PRIVKEY_SIZE);
+            assert(tls_context.cert_keys.public_key.len == SECP256_PUBKEY_SIZE);
             tls_context.cert_key_type = NG_SECP256R1;
             break;
         default:
             fprintf(stderr, "Error: certificate uses currently unsupported key type, only prime256v1/secp256r1 is currently implemented\n");
             return EXIT_FAILURE;
     }
+    fprintf(stderr, "Using certificate private key:\n");
+    for (int i = 0; i < tls_context.cert_keys.private_key.len; i++) {
+        fprintf(stderr, "%02hhx", ((unsigned char*)tls_context.cert_keys.private_key.data)[i]);
+    }
+    fprintf(stderr, "\nUsing certificate public key:\n");
+    for (int i = 0; i < tls_context.cert_keys.public_key.len; i++) {
+        fprintf(stderr, "%02hhx", ((unsigned char*)tls_context.cert_keys.public_key.data)[i]);
+    }
+    printf("\n");
+
+    free(privkey);
     return 0;
 }

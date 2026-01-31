@@ -1,6 +1,7 @@
 .vscode
-src/*.o
-src/*/*.o
-src/*/*/*.o
+*.o
+*/*.o
+*/*/*.o
+*/*/*/*.o
 build/*
 vgcore.*

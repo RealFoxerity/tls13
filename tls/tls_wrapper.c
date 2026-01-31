@@ -20,7 +20,6 @@
 #include "include/tls_internal.h"
 #include "include/tls_extensions.h"
 #include "include/memstructs.h"
-#include "crypto/include/sha2.h"
 #include "include/tls_crypto.h"
 #include "include/tls_packets.h"
 
@@ -533,7 +532,6 @@ int construct_server_hello(unsigned char * buffer, size_t len, struct ClientHell
     //}
 
     update_transcript_hash(buffer + sizeof(TLS_record_header), final_size-sizeof(TLS_record_header));
-    print_hex_buf(buffer+sizeof(TLS_record_header), final_size - sizeof(TLS_record_header));
     return final_size;
 }
 

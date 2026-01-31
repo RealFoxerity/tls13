@@ -1,10 +1,10 @@
 #include "include/tls_packets.h"
-#include "crypto/include/hmac.h"
-#include "crypto/include/secp256.h"
+#include "../crypto/include/hmac.h"
+#include "../crypto/include/secp256.h"
 #include "include/memstructs.h"
 #include "include/tls_internal.h"
 #include "include/tls_crypto.h"
-#include "crypto/include/aes.h"
+#include "../crypto/include/aes.h"
 
 #include <assert.h>
 #include <stdint.h>
@@ -52,8 +52,9 @@ int encrypt_tls_packet(unsigned char wrapped_record_type, unsigned char handshak
     };
 
     memcpy(input_buf_wrapped + sizeof(TLS_handshake), input_buf, in_buf_len);
-    update_transcript_hash(input_buf_wrapped, sizeof(TLS_handshake) + in_buf_len);
     input_buf_wrapped[sizeof(TLS_handshake)+in_buf_len] = wrapped_record_type;
+
+    update_transcript_hash(input_buf_wrapped, sizeof(TLS_handshake) + in_buf_len);
 
     size_t ret_len = wrapped_len + aead_tag_len + sizeof(TLS_record_header);
     assert(out_buf_len >= ret_len);
@@ -162,7 +163,7 @@ int construct_certificate_verify(unsigned char * buffer, size_t len) {
     Vector hash = get_transcript_hash();
     if (hash.data == NULL) return (long)hash.len;
 
-    unsigned char * cert_verify = malloc(64 + sizeof(CONTEXT_STRING) + hash.len);
+    unsigned char * cert_verify = malloc(64 + sizeof(CONTEXT_STRING) + hash.len); // we want the null byte here
     assert(cert_verify);
     memset(cert_verify, 0x20, 64);
     memcpy(cert_verify + 64, CONTEXT_STRING, sizeof(CONTEXT_STRING));
@@ -175,6 +176,7 @@ int construct_certificate_verify(unsigned char * buffer, size_t len) {
     for (int i = 0; i < 64 + sizeof(CONTEXT_STRING) + hash.len; i++) {
         fprintf(stderr, "%02hhx", cert_verify[i]);
     }
+    fprintf(stderr, "\n");
 
     Vector sign = asn1_wrap_secp256r1_sign(chosen_hash, cert_verify, 64 + sizeof(CONTEXT_STRING) + hash.len, (struct secp_key) {
         .private_key = tls_context.cert_keys.private_key.data
@@ -182,11 +184,11 @@ int construct_certificate_verify(unsigned char * buffer, size_t len) {
     assert(sign.data);
     assert(sign.len < 1<<16);
 
-    fprintf(stderr, "\nsignature:\n");
+    fprintf(stderr, "signature:\n");
     for (int i = 0; i < sign.len; i++) {
         fprintf(stderr, "%02hhx", ((unsigned char *)sign.data)[i]);
     }
-
+    fprintf(stderr, "\n");
 
     unsigned char * packet_inner = malloc(
         sign.len +
@@ -197,8 +199,6 @@ int construct_certificate_verify(unsigned char * buffer, size_t len) {
     ((short*)packet_inner)[0] = htons(tls_context.chosen_signature_algo);
     ((short*)packet_inner)[1] = htons(sign.len);
     memcpy(packet_inner + 2 * sizeof(uint16_t), sign.data, sign.len);
-
-    update_transcript_hash(packet_inner, sign.len + 2 * sizeof(uint16_t)); // should be safe after get_transcript_hash
 
     int ret = encrypt_tls_packet(CT_HANDSHAKE, HT_CERTIFICATE_VERIFY, buffer, len, packet_inner, sign.len + 2 * sizeof(uint16_t));
     free(hash.data);
