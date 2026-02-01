@@ -29,8 +29,27 @@ Vector asn1_wrap_secp256r1_sign(enum hmac_supported_hashes hash_type, const unsi
     assert(signature.r);
     assert(signature.s);
 
-    Vector wrapped_r = asn1_der_wrap_element(signature.r, ECDSA_SECP256_SIG_SIZE, ASN1_INTEGER);
-    Vector wrapped_s = asn1_der_wrap_element(signature.s, ECDSA_SECP256_SIG_SIZE, ASN1_INTEGER);
+    char signature_r_len = ECDSA_SECP256_SIG_SIZE;
+    char signature_s_len = ECDSA_SECP256_SIG_SIZE;
+
+    if (signature.r[0] & 0x80) { // asn.1 expects that if the high bit is set, then the number is negative
+        signature.r = realloc(signature.r, signature_r_len + 1);
+        assert(signature.r);
+        memmove(signature.r + 1, signature.r, signature_r_len);
+        signature_r_len ++;
+        ((unsigned char *)signature.r)[0] = 0;
+    }
+    if (signature.s[0] & 0x80) {
+        signature.s = realloc(signature.s, signature_s_len + 1);
+        assert(signature.s);
+        memmove(signature.s + 1, signature.s, signature_s_len);
+        signature_s_len ++;
+        ((unsigned char *)signature.s)[0] = 0;
+    }
+
+
+    Vector wrapped_r = asn1_der_wrap_element(signature.r, signature_r_len, ASN1_INTEGER);
+    Vector wrapped_s = asn1_der_wrap_element(signature.s, signature_s_len, ASN1_INTEGER);
     assert(wrapped_r.data);
     assert(wrapped_s.data);
 
