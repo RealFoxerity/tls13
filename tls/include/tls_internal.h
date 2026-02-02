@@ -263,6 +263,7 @@ enum AlertDescription { // uchar
 enum tls_state { // roughly what is written on page 120 of rfc8446
     TS_SETTING_UP_INTERACTIVE, // START
     TS_SETTING_UP_SERVER_SIDE, // RECVD_CH + NEGOTIATED
+    TS_WAITING_FOR_CLIENT_FINISHED,
     TS_READY                   // CONNECTED
 };
 
@@ -327,6 +328,8 @@ struct ServerCertificatesHeader {
 #include "hkdf_tls.h"
 #include "../../crypto/include/sha2.h"
 struct tls_context {
+    enum tls_state current_state;
+
     sha2_ctx_t transcript_hash_ctx;
 
     uint64_t recv_message_counter, txd_message_counter;

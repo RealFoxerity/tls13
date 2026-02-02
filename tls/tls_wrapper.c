@@ -41,8 +41,6 @@ struct tls_context tls_context = {0};
 
 unsigned char * tls_packet_buffer = NULL;
 
-enum tls_state current_state = TS_SETTING_UP_INTERACTIVE;
-
 size_t print_hex_buf(const unsigned char * buf, size_t len) {
     for (size_t i = 0; i < len; i++) {
         if (i % 16 == 0) {
@@ -69,7 +67,7 @@ void ssl_cleanup() {
     cleaned_up = 1;
 }
 
-int decrypt_tls(unsigned char* buffer, size_t len);
+int handle_tls_packet(unsigned char* buffer, size_t len);
 void construct_alert(unsigned char alert_desc, unsigned char alert_level, unsigned char* buffer, size_t bufsiz) {
     assert(bufsiz >= sizeof(TLS_record_header)+sizeof(struct Alert));
     memset(buffer, 0, bufsiz);
@@ -90,6 +88,10 @@ void exit_handler(int signal) {
 
     exit(EXIT_SUCCESS);
 }
+
+#define CHECK_AND_SEND if (ret < 0) goto alert;\
+                        tls_context.txd_message_counter ++;\
+                        send(socket_fd, tls_packet_buffer, ret, 0);\
 
 char ssl_wrapper(int socket_fd, void (*wrapped_func)(int socket_fd)) {
     if (tls_context.cert_len == 0 || tls_context.cert == NULL) return -1; // we don't support PSK nor raw keys and the user hasn't supplied a certificate
@@ -123,7 +125,7 @@ char ssl_wrapper(int socket_fd, void (*wrapped_func)(int socket_fd)) {
     int recv_len = 0;
 
     int ret;
-    current_state = TS_SETTING_UP_INTERACTIVE;
+    tls_context.current_state = TS_SETTING_UP_INTERACTIVE;
 
     while (select(MAX(socket_fd, inner_fd)+1, &set, NULL, NULL, NULL) != -1) {
         if (FD_ISSET(socket_fd, &set)) { // client sending a message
@@ -133,7 +135,7 @@ char ssl_wrapper(int socket_fd, void (*wrapped_func)(int socket_fd)) {
             recv_len = recv(socket_fd, tls_packet_buffer, MAX_REQUEST_SIZE, 0);
             if (recv_len == 0) continue; // how?
 
-            if ((ret = decrypt_tls(tls_packet_buffer, recv_len)) == 0xFFFFFFFF) { // got alert
+            if ((ret = handle_tls_packet(tls_packet_buffer, recv_len)) == 0xFFFFFFFF) { // got alert
                 ssl_cleanup();
                 return EXIT_FAILURE;
             } else if (ret < 0) {
@@ -144,7 +146,7 @@ char ssl_wrapper(int socket_fd, void (*wrapped_func)(int socket_fd)) {
                 return EXIT_FAILURE;
             } else if (ret == 0) continue; // packet doesn't require an answer
             else {
-                switch (current_state) {
+                switch (tls_context.current_state) {
                     case TS_READY:
                         tls_context.txd_message_counter ++;
                         send(inner_fd, tls_packet_buffer, ret, 0);
@@ -156,20 +158,20 @@ char ssl_wrapper(int socket_fd, void (*wrapped_func)(int socket_fd)) {
                     case TS_SETTING_UP_SERVER_SIDE: // sending the actual server hello, change cipher spec, wrapped records, encrypted extensions
                         send(socket_fd, tls_packet_buffer, ret, 0);
                         
-                        ret = construct_encrypted_extensions(tls_packet_buffer, MAX_REQUEST_SIZE);
-                        if (ret < 0) goto alert;
-                        tls_context.txd_message_counter ++;
-                        send(socket_fd, tls_packet_buffer, ret, 0);
+                        ret = construct_encrypted_extensions(&tls_context, tls_packet_buffer, MAX_REQUEST_SIZE);
+                        CHECK_AND_SEND
                         
-                        ret = construct_certificate(tls_packet_buffer, MAX_REQUEST_SIZE);
-                        if (ret < 0) goto alert;
-                        tls_context.txd_message_counter ++;
-                        send(socket_fd, tls_packet_buffer, ret, 0);
+                        ret = construct_certificate(&tls_context, tls_packet_buffer, MAX_REQUEST_SIZE);
+                        CHECK_AND_SEND
                         
-                        ret = construct_certificate_verify(tls_packet_buffer, MAX_REQUEST_SIZE);
-                        if (ret < 0) goto alert;
-                        tls_context.txd_message_counter ++;
-                        send(socket_fd, tls_packet_buffer, ret, 0);
+                        ret = construct_certificate_verify(&tls_context, tls_packet_buffer, MAX_REQUEST_SIZE);
+                        CHECK_AND_SEND
+
+                        ret = construct_server_finished(&tls_context, tls_packet_buffer, MAX_REQUEST_SIZE);
+                        CHECK_AND_SEND
+                        
+                        generate_server_app_secrets(&tls_context);
+                        tls_context.current_state = TS_WAITING_FOR_CLIENT_FINISHED;
                     default:
                         break;
                 }
@@ -584,7 +586,7 @@ int handshake_tls(unsigned char * buffer, size_t record_end_offset, size_t len) 
             free_client_hello(CH_packet);
             return ret;
         }
-        if (ret == 1) current_state = TS_SETTING_UP_SERVER_SIDE;
+        if (ret == 1) tls_context.current_state = TS_SETTING_UP_SERVER_SIDE;
         
         if (tls_context.chosen_cipher_suite == 0) { // implicitally doing helloretryrequest since otherwise ccs wouldn't be 0
             tls_context.chosen_cipher_suite = TLS_AES_256_GCM_SHA384;
@@ -617,7 +619,7 @@ int handshake_tls(unsigned char * buffer, size_t record_end_offset, size_t len) 
     return -AD_UNEXPECTED_MESSAGE; // no way we get here
 }
 
-int decrypt_tls(unsigned char* buffer, size_t len) { // TODO: implement alerts, implement actually valid bounds checking
+int handle_tls_packet(unsigned char* buffer, size_t len) { // TODO: implement alerts, implement actually valid bounds checking
 
     if (len < sizeof(TLS_record_header)) {
         fprintf(stderr, "Recieved packet too short to be a valid TLS message (size was %lu)\n", len);
@@ -663,16 +665,26 @@ int decrypt_tls(unsigned char* buffer, size_t len) { // TODO: implement alerts, 
         fprintf(stderr, "Warning: record length smaller than recieved data!\n");
     }
 
+
+    unsigned char * decrypted_buffer = NULL;
+    int out_len = 0;
     switch (record.content_type) {
         case CT_ALERT:
             fprintf(stderr, "Recieved ALERT: level: 0x%02hhx, desc 0x%02hhx\n", *(buffer+sizeof(TLS_record_header)),*(buffer+sizeof(TLS_record_header)+1));
             return 0xFFFFFFFF;
         case CT_HANDSHAKE:
             if (len < sizeof(TLS_record_header)+sizeof(TLS_handshake)) return -AD_DECODE_ERROR;
-            int out_len = handshake_tls(buffer, record_offset, record.length);
+            out_len = handshake_tls(buffer, record_offset, record.length);
             return out_len; // negative = alert
         case CT_APPLICATION_DATA:
-            // decrypt packet
+            switch (tls_context.current_state) {
+                case TS_WAITING_FOR_CLIENT_FINISHED:
+                case TS_READY:
+                    out_len = decrypt_tls_packet(&tls_context, &decrypted_buffer, buffer, len); // decrypt_tls_packet needs record layer as AAD for AEAD
+                    
+                default:
+                    return -AD_UNEXPECTED_MESSAGE;
+            }
             break;
     }
 

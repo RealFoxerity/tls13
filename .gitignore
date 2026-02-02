@@ -1,7 +1,11 @@
 .vscode
 *.o
+*.so
 */*.o
+*/*.so
 */*/*.o
+*/*/*.so
 */*/*/*.o
+*/*/*/*.so
 build/*
 vgcore.*

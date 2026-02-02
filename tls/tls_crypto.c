@@ -13,6 +13,7 @@
 #include <stdlib.h>
 
 // TODO: if/when implementing PSK change first HKDF-extract to not use an empty block for IKM for PSK
+// https://www.rfc-editor.org/rfc/rfc8446#section-7.1
 void generate_server_secrets(struct tls_context * tls_context) { // has to be a different function since it requires the transcript hash to be up-to-date
     unsigned char * null_block = NULL;
     unsigned char * null_hash = NULL;
@@ -125,47 +126,22 @@ void generate_server_secrets(struct tls_context * tls_context) { // has to be a 
 
 void generate_server_app_secrets(struct tls_context * tls_context) { // has to be done after Finalize message
     assert(tls_context->master_secret.prk);
-    unsigned char * null_hash = NULL;
-    unsigned char * transcript_hash;
 
-    size_t hash_len;
-    enum hmac_supported_hashes hash_type;
+    Vector transcript_hash = get_transcript_hash();
+    assert(transcript_hash.data);
+    enum hmac_supported_hashes hash_type = get_transcript_hash_type();
+    assert(hash_type);
 
-    switch (tls_context->chosen_cipher_suite) {
-        case TLS_AES_128_GCM_SHA256:
-            hash_len = SHA256_HASH_BYTES;
-            hash_type = HMAC_SHA2_256;
-            null_hash = malloc(SHA256_HASH_BYTES);
-            assert(null_hash);
-            sha256_sum(null_hash, NULL, 0);
+    tls_context->client_application_secret_0.data = hkdf_expand_label(hash_type, tls_context->master_secret, (unsigned char *)"c ap traffic", 12,
+        transcript_hash.data, transcript_hash.len, transcript_hash.len);
 
-            transcript_hash = malloc(SHA256_HASH_BYTES);
-            assert(transcript_hash);
-            sha256_finalize(&tls_context->transcript_hash_ctx, transcript_hash);
-            break;
-        case TLS_AES_256_GCM_SHA384:
-            hash_len = SHA384_HASH_BYTES;
-            hash_type = HMAC_SHA2_384;
-            null_hash = malloc(SHA384_HASH_BYTES);
-            assert(null_hash);
-            sha384_sum(null_hash, NULL, 0);
+    tls_context->client_application_secret_0.len = transcript_hash.len;
 
-            transcript_hash = malloc(SHA384_HASH_BYTES);
-            assert(transcript_hash);
-            sha384_finalize(&tls_context->transcript_hash_ctx, transcript_hash);
-            break;
-        default:
-            fprintf(stderr, "Chosen unsupported cipher suite (how did we get here?)\n");
-            exit(-AD_HANDSHAKE_FAILURE);
-    }
+    tls_context->server_application_secret_0.data = hkdf_expand_label(hash_type, tls_context->master_secret, (unsigned char *)"s ap traffic", 12,
+        transcript_hash.data, transcript_hash.len, transcript_hash.len);
 
-    tls_context->client_application_secret_0.data = hkdf_expand_label(hash_type, tls_context->master_secret, (unsigned char *)"c ap traffic", 12, transcript_hash, hash_len, hash_len);    
-    tls_context->client_application_secret_0.len = hash_len;
-
-    tls_context->server_application_secret_0.data = hkdf_expand_label(hash_type, tls_context->master_secret, (unsigned char *)"s ap traffic", 12, transcript_hash, hash_len, hash_len);    
-    tls_context->server_application_secret_0.len = hash_len;
-    free(null_hash);
-    free(transcript_hash);
+    tls_context->server_application_secret_0.len = transcript_hash.len;
+    free(transcript_hash.data);
 }
 
 int generate_server_keys(struct tls_context * tls_context) {

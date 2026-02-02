@@ -4,6 +4,10 @@
 #include <stdlib.h>
 #include "include/generic_weierstrass_curve.h"
 
+// TODO: check for points at infinity! There is a slight chance of the resulting point not being on the curve resulting in
+// 803B9E129F7F0000:error:0800006B:elliptic curve routines:EC_POINT_set_affine_coordinates:point is not on curve:crypto/ec/ec_lib.c:880:
+
+
 static elpoint get_point(elpoint a, elpoint b, mpz_t lambda, mpz_t prime) {
     /*
         from https://en.wikipedia.org/wiki/Elliptic_curve_point_multiplication#Point_addition
