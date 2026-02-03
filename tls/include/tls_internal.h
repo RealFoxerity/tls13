@@ -350,7 +350,7 @@ struct tls_context {
     struct prk early_secret, handshake_secret, master_secret;
     Vector master_key, server_hs_traffic_secret, client_hs_traffic_secret;
     Vector server_write_key, server_write_iv, client_write_key, client_write_iv;
-    Vector server_application_secret_0, server_application_iv, client_application_secret_0, client_application_iv;
+    Vector server_application_secret_0, server_application_iv, server_application_key, client_application_secret_0, client_application_iv, client_application_key;
 
     // certificates
     unsigned char * cert; // the der certificate that's sent across the network

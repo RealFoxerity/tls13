@@ -142,6 +142,51 @@ void generate_server_app_secrets(struct tls_context * tls_context) { // has to b
 
     tls_context->server_application_secret_0.len = transcript_hash.len;
     free(transcript_hash.data);
+
+    struct prk cas = (struct prk) {
+        .prk = tls_context->client_application_secret_0.data,
+        .prk_len = tls_context->client_application_secret_0.len
+    };
+
+    struct prk sas = (struct prk) {
+        .prk = tls_context->server_application_secret_0.data,
+        .prk_len = tls_context->server_application_secret_0.len
+    };
+    int key_len = get_cipher_key_len();
+    if (hash_type < 0) abort();
+    int iv_len = get_cipher_iv_len();
+    if (iv_len < 0) abort();
+
+    tls_context->client_application_key.data = hkdf_expand_label(hash_type, cas, (unsigned char *)"key", 3, NULL, 0, key_len);
+    tls_context->client_application_key.len = key_len;
+
+    tls_context->server_application_key.data = hkdf_expand_label(hash_type, sas, (unsigned char *)"key", 3, NULL, 0, key_len);
+    tls_context->server_application_key.len = key_len;
+
+    tls_context->client_application_iv.data = hkdf_expand_label(hash_type, cas, (unsigned char *)"iv", 2, NULL, 0, iv_len);
+    tls_context->client_application_iv.len = iv_len;
+
+    tls_context->server_application_iv.data = hkdf_expand_label(hash_type, sas, (unsigned char *)"iv", 2, NULL, 0, iv_len);
+    tls_context->server_application_iv.len = iv_len;
+
+    fprintf(stderr, "New application keys:\ntls_context->server_application_key: ");
+    for (int i = 0; i < tls_context->server_application_key.len; i++) {
+        fprintf(stderr, "%02hhx ", ((unsigned char *)tls_context->server_application_key.data)[i]);
+    }
+    fprintf(stderr, "\ntls_context->server_application_iv: ");
+    for (int i = 0; i < tls_context->server_application_iv.len; i++) {
+        fprintf(stderr, "%02hhx ", ((unsigned char *)tls_context->server_application_iv.data)[i]);
+    }
+
+    fprintf(stderr, "\ntls_context->client_application_key: ");
+    for (int i = 0; i < tls_context->client_application_key.len; i++) {
+        fprintf(stderr, "%02hhx ", ((unsigned char *)tls_context->client_application_key.data)[i]);
+    }
+    fprintf(stderr, "\ntls_context->client_write_iv: ");
+    for (int i = 0; i < tls_context->client_application_iv.len; i++) {
+        fprintf(stderr, "%02hhx ", ((unsigned char *)tls_context->client_application_iv.data)[i]);
+    }
+    fprintf(stderr, "\n");
 }
 
 int generate_server_keys(struct tls_context * tls_context) {

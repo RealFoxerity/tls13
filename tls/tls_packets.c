@@ -44,18 +44,24 @@ int encrypt_tls_packet(struct tls_context * tls_context, unsigned char wrapped_r
     }
 
     size_t pad_bytes = 0; // selected 0 because it is not required, see https://www.rfc-editor.org/rfc/rfc8446#section-5.4
-    size_t wrapped_len = sizeof(TLS_handshake) + in_buf_len + 1 + pad_bytes;
+    size_t wrapped_len = (wrapped_record_type != CT_APPLICATION_DATA ? sizeof(TLS_handshake) : 0) + in_buf_len + 1 + pad_bytes;
     unsigned char * input_buf_wrapped = calloc(wrapped_len, 1);
     assert(input_buf_wrapped);
-    *(TLS_handshake*)input_buf_wrapped = (TLS_handshake) {
-        .msg_type = handshake_message_type,
-        .length = htons(in_buf_len)
-    };
+    
+    if (wrapped_record_type != CT_APPLICATION_DATA) {
+        *(TLS_handshake*)input_buf_wrapped = (TLS_handshake) {
+            .msg_type = handshake_message_type,
+            .length = htons(in_buf_len)
+        };
+        memcpy(input_buf_wrapped + sizeof(TLS_handshake), input_buf, in_buf_len);
+        input_buf_wrapped[sizeof(TLS_handshake)+in_buf_len] = wrapped_record_type;
+    } else {
+        memcpy(input_buf_wrapped, input_buf, in_buf_len);
+        input_buf_wrapped[+in_buf_len] = wrapped_record_type;
+    }
 
-    memcpy(input_buf_wrapped + sizeof(TLS_handshake), input_buf, in_buf_len);
-    input_buf_wrapped[sizeof(TLS_handshake)+in_buf_len] = wrapped_record_type;
 
-    update_transcript_hash(input_buf_wrapped, sizeof(TLS_handshake) + in_buf_len);
+    if (tls_context->current_state != TS_READY) update_transcript_hash(input_buf_wrapped, (wrapped_record_type != CT_APPLICATION_DATA ? sizeof(TLS_handshake) : 0) + in_buf_len);
 
     size_t ret_len = wrapped_len + aead_tag_len + sizeof(TLS_record_header);
     assert(out_buf_len >= ret_len);
@@ -70,6 +76,16 @@ int encrypt_tls_packet(struct tls_context * tls_context, unsigned char wrapped_r
     unsigned char * nonce = NULL;
     uint8_t * ciphertext = NULL;
 
+    uint8_t * chosen_iv;
+    uint8_t * chosen_key;
+    if (tls_context->current_state != TS_READY) {
+        chosen_iv = tls_context->server_write_iv.data;
+        chosen_key = tls_context->server_write_key.data;
+    } else {
+        chosen_iv = tls_context->server_application_iv.data;
+        chosen_key = tls_context->server_application_key.data;
+    }
+
     // https://www.rfc-editor.org/rfc/rfc8446#section-5.2
     switch (tls_context->chosen_cipher_suite) {
         case TLS_AES_128_GCM_SHA256:
@@ -79,7 +95,7 @@ int encrypt_tls_packet(struct tls_context * tls_context, unsigned char wrapped_r
             assert(nonce);
             *(uint64_t*)(nonce + AES_GCM_DEFAULT_IV_LEN - sizeof(uint64_t)) = htobe64(tls_context->txd_message_counter); // network byte order to be exact, no such thing as htonll
             for (int i = 0; i < AES_GCM_DEFAULT_IV_LEN; i++) {
-                nonce[i] ^= ((uint8_t *)(tls_context->server_write_iv.data))[i];
+                nonce[i] ^= chosen_iv[i];
             }
     }
     switch (tls_context->chosen_cipher_suite) {
@@ -88,7 +104,7 @@ int encrypt_tls_packet(struct tls_context * tls_context, unsigned char wrapped_r
                 out_buf, sizeof(TLS_record_header), 
                 nonce, AES_GCM_DEFAULT_IV_LEN, 
                 out_buf + sizeof(TLS_record_header) + wrapped_len, 
-                tls_context->server_write_key.data);
+                chosen_key);
             assert(ciphertext);    
             break;
         case TLS_AES_256_GCM_SHA384:
@@ -96,7 +112,7 @@ int encrypt_tls_packet(struct tls_context * tls_context, unsigned char wrapped_r
                 out_buf, sizeof(TLS_record_header), 
                 nonce, AES_GCM_DEFAULT_IV_LEN, 
                 out_buf + sizeof(TLS_record_header) + wrapped_len, 
-                tls_context->server_write_key.data);
+                chosen_key);
             assert(ciphertext);  
             break;
     }
@@ -109,10 +125,14 @@ int encrypt_tls_packet(struct tls_context * tls_context, unsigned char wrapped_r
     return ret_len;
 }
 
-int decrypt_tls_packet(struct tls_context * tls_context, unsigned char ** restrict out_buf, unsigned char * in_buf, size_t in_buf_len) { // returns size of decrypted array or negative alert
-    fprintf(stderr, "Decrypt not yet implemented!\n");
-    return -AD_UNEXPECTED_MESSAGE;    
+size_t print_hex_buf(const unsigned char * buf, size_t len);
 
+int decrypt_tls_packet(struct tls_context * tls_context, unsigned char ** out_buf, unsigned char * in_buf, size_t in_buf_len, size_t record_end_offset, TLS_handshake * handshake_hdr_out, unsigned char * wrapped_type_out) { // returns size of decrypted array or negative alert
+    assert(tls_context);
+    assert(out_buf);
+    assert(in_buf);
+    //fprintf(stderr, "Decrypt not yet implemented!\n");
+    //return -AD_UNEXPECTED_MESSAGE;    
 
     assert(in_buf_len < 1<<16);
     size_t aead_tag_len = 0;
@@ -128,11 +148,23 @@ int decrypt_tls_packet(struct tls_context * tls_context, unsigned char ** restri
 
     
 
-    unsigned char * data_start = in_buf + sizeof(TLS_record_header);
-
-
+    unsigned char * data_start = in_buf + record_end_offset;
     unsigned char * aead_start = in_buf + in_buf_len - aead_tag_len;
-    unsigned char * nonce;
+    unsigned char * aad_start = in_buf + record_end_offset - sizeof(TLS_record_header);
+    size_t data_len = in_buf_len - aead_tag_len - record_end_offset;
+    unsigned char * nonce = NULL;
+
+    int ret = 0;
+
+    uint8_t * chosen_iv;
+    uint8_t * chosen_key;
+    if (tls_context->current_state != TS_READY) {
+        chosen_iv = tls_context->client_write_iv.data;
+        chosen_key = tls_context->client_write_key.data;
+    } else {
+        chosen_iv = tls_context->client_application_iv.data;
+        chosen_key = tls_context->client_application_key.data;
+    }
     switch (tls_context->chosen_cipher_suite) {
         case TLS_AES_128_GCM_SHA256:
         case TLS_AES_256_GCM_SHA384:
@@ -141,31 +173,72 @@ int decrypt_tls_packet(struct tls_context * tls_context, unsigned char ** restri
             assert(nonce);
             *(uint64_t*)(nonce + AES_GCM_DEFAULT_IV_LEN - sizeof(uint64_t)) = htobe64(tls_context->recv_message_counter); // network byte order to be exact, no such thing as htonll
             for (int i = 0; i < AES_GCM_DEFAULT_IV_LEN; i++) {
-                nonce[i] ^= ((uint8_t *)(tls_context->client_write_iv.data))[i];
+                nonce[i] ^= ((uint8_t *)(chosen_iv))[i];
             }
     }
+
+    fprintf(stderr, "recv counter: %lu\n", tls_context->recv_message_counter);
+
     unsigned char * plaintext = NULL;
     switch (tls_context->chosen_cipher_suite) {
         case TLS_AES_128_GCM_SHA256:
-            plaintext = aes_128_gcm_dec(data_start, aead_start - data_start, 
-                in_buf, sizeof(TLS_record_header),
+            plaintext = aes_128_gcm_dec(data_start, data_len, 
+                aad_start, sizeof(TLS_record_header),
                 nonce, AES_GCM_DEFAULT_IV_LEN, 
                 aead_start, 
-                tls_context->client_write_key.data);
-            assert(plaintext);    
+                chosen_key);
             break;
         case TLS_AES_256_GCM_SHA384:
-            plaintext = aes_256_gcm_dec(data_start, aead_start - data_start, 
-                in_buf, sizeof(TLS_record_header),
+            plaintext = aes_256_gcm_dec(data_start, data_len, 
+                aad_start, sizeof(TLS_record_header),
                 nonce, AES_GCM_DEFAULT_IV_LEN, 
                 aead_start, 
-                tls_context->client_write_key.data);
-            assert(plaintext);
+                chosen_key);
             break;
     }
-
-
     free(nonce);
+
+    switch ((intptr_t)plaintext) {
+        case 0:
+            fprintf(stderr, "Failed to verify data\n");
+        case -1: // failed to decrypt
+            fprintf(stderr, "Failed to decrypt\n");
+            ret = -AD_BAD_RECORD_MAC;
+            *out_buf = NULL;
+            break;
+        default: 
+            ret = data_len;
+    }
+
+    if (ret >= 0) {
+        fprintf(stderr, "Decrypted TLS packet:\n");
+        print_hex_buf(plaintext, ret);
+    }
+
+    if (ret < 1) { // the minimum size of recieved packet - 0 bytes inner length
+        trunc:
+        free(plaintext);
+        return -AD_DECODE_ERROR;
+    } else {
+        if (handshake_hdr_out) {
+            unsigned char *wrapped_type = 0;
+            for (size_t i = data_len - 1; i >= 0; i--) {
+                if (plaintext[i] != 0) { // skipping padding to get to wrapped content type
+                    ret = i;
+                    wrapped_type = &plaintext[i];
+                    break;
+                }
+            }
+            *wrapped_type_out = *wrapped_type;
+            if (*wrapped_type != CT_APPLICATION_DATA) {
+                if (ret < sizeof(TLS_handshake) + 1) goto trunc; // minimum for handshakes
+                *handshake_hdr_out = *(TLS_handshake*)plaintext;
+                memmove(plaintext, plaintext + sizeof(TLS_handshake), ret - sizeof(TLS_handshake));
+            }
+        }
+    }
+    *out_buf = plaintext;
+    return ret;
 }
 
 
@@ -290,5 +363,37 @@ int construct_server_finished(struct tls_context * tls_context, unsigned char * 
     free(finished_key);
     int ret = encrypt_tls_packet(tls_context, CT_HANDSHAKE, HT_FINISHED, buffer, len, verify_data, transcript_hash.len);
     free(verify_data);
+    return ret;
+}
+
+int verify_client_finished(struct tls_context * tls_context, unsigned char * buffer, size_t len) {
+    Vector transcript_hash = get_transcript_hash();
+    if (len < transcript_hash.len) {
+        fprintf(stderr, "Recieved truncated client finished\n");
+        return -AD_DECODE_ERROR;
+    }
+
+    unsigned char * finished_key = hkdf_expand_label(
+        get_transcript_hash_type(),
+        (struct prk) {
+            .prk = tls_context->client_hs_traffic_secret.data,
+            .prk_len = tls_context->client_hs_traffic_secret.len
+        },
+        (unsigned char *)FINISHED_CONTEXT_STRING, sizeof(FINISHED_CONTEXT_STRING)-1,
+        (unsigned char *)"", 0, transcript_hash.len
+    );
+    assert(finished_key);
+
+    unsigned char * verify_data = hmac(get_transcript_hash_type(), finished_key, transcript_hash.len, transcript_hash.data, transcript_hash.len);
+    assert(verify_data);
+    free(finished_key);
+
+    int ret = -AD_BAD_RECORD_MAC;
+    if (memcmp(buffer, verify_data, transcript_hash.len) == 0) ret = 0;
+    else {
+        fprintf(stderr, "Client finished payload doesn't match expected value\n");
+    }
+    free(verify_data);
+
     return ret;
 }

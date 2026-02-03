@@ -39,7 +39,7 @@ struct tls_context tls_context = {0};
 //Vector pkem = {0}; // pkem enum
 //Vector pre_shared_key = {0};
 
-unsigned char * tls_packet_buffer = NULL;
+unsigned char * tls_packet_buffer = NULL, * tls_packet_buffer2 = NULL;
 
 size_t print_hex_buf(const unsigned char * buf, size_t len) {
     for (size_t i = 0; i < len; i++) {
@@ -56,19 +56,22 @@ size_t print_hex_buf(const unsigned char * buf, size_t len) {
 //#define recv(fd, buf, len, fl) print_hex_buf(buf, recv(fd, buf, len, fl))
 //#define send(fd, buf, len, fl) {fprintf(stderr, "Txd:\n"); print_hex_buf(buf, len); send(fd, buf, len, fl);}
 
-#define MAX_REQUEST_SIZE 0x100000 // 1MB
-
+#define MAX_REQUEST_SIZE (0x100FF) // the record layer header limits us to 65k, a little more than that to receive even the header itself
+#define MAX_FRAGMENT_SIZE (1<<14) // for the inner fd, this is according to https://www.rfc-editor.org/rfc/rfc8446#section-5.1 the largest permissible payload
 void cleanup();
 char cleaned_up = 0;
 void ssl_cleanup() {
     if (cleaned_up) return;
     cleanup();
     free(tls_packet_buffer);
+    free(tls_packet_buffer2);
     cleaned_up = 1;
 }
 
 int handle_tls_packet(unsigned char* buffer, size_t len);
 void construct_alert(unsigned char alert_desc, unsigned char alert_level, unsigned char* buffer, size_t bufsiz) {
+    // TODO: sending plain Alerts after server finished is being flagged as invalid record type by openssl, figure out why
+    
     assert(bufsiz >= sizeof(TLS_record_header)+sizeof(struct Alert));
     memset(buffer, 0, bufsiz);
     ((TLS_record_header*)buffer)->content_type = CT_ALERT;
@@ -120,7 +123,9 @@ char ssl_wrapper(int socket_fd, void (*wrapped_func)(int socket_fd)) {
     errno = 0;
 
     tls_packet_buffer = malloc(MAX_REQUEST_SIZE);
+    tls_packet_buffer2 = malloc(MAX_REQUEST_SIZE);
     assert(tls_packet_buffer!=NULL);
+    assert(tls_packet_buffer2!=NULL);
 
     int recv_len = 0;
 
@@ -129,7 +134,6 @@ char ssl_wrapper(int socket_fd, void (*wrapped_func)(int socket_fd)) {
 
     while (select(MAX(socket_fd, inner_fd)+1, &set, NULL, NULL, NULL) != -1) {
         if (FD_ISSET(socket_fd, &set)) { // client sending a message
-            tls_context.recv_message_counter ++;
             FD_SET(inner_fd, &set);
             //fprintf(stderr, "Recv:\n");
             recv_len = recv(socket_fd, tls_packet_buffer, MAX_REQUEST_SIZE, 0);
@@ -144,11 +148,14 @@ char ssl_wrapper(int socket_fd, void (*wrapped_func)(int socket_fd)) {
                 send(socket_fd, tls_packet_buffer, sizeof(TLS_record_header)+sizeof(struct Alert), 0); // alert messages are always 7 bytes long
                 ssl_cleanup();
                 return EXIT_FAILURE;
-            } else if (ret == 0) continue; // packet doesn't require an answer
+            } else if (ret == 0) { // packet doesn't require an answer
+                tls_context.recv_message_counter ++;
+                continue;
+            }
             else {
                 switch (tls_context.current_state) {
                     case TS_READY:
-                        tls_context.txd_message_counter ++;
+                        tls_context.recv_message_counter ++;
                         send(inner_fd, tls_packet_buffer, ret, 0);
                         break;
                     case TS_SETTING_UP_INTERACTIVE: // during back and forth between client and server (client hello -> server hello...)
@@ -172,17 +179,22 @@ char ssl_wrapper(int socket_fd, void (*wrapped_func)(int socket_fd)) {
                         
                         generate_server_app_secrets(&tls_context);
                         tls_context.current_state = TS_WAITING_FOR_CLIENT_FINISHED;
+                        break;
                     default:
+                        tls_context.recv_message_counter ++;
                         break;
                 }
             }
-        
         } else { // server sending a message
-            tls_context.txd_message_counter ++;
             FD_SET(socket_fd, &set);
-            recv_len = recv(inner_fd, tls_packet_buffer, MAX_REQUEST_SIZE, 0);
-            //encrypt_tls(buffer, recv_len);
-            send(socket_fd, tls_packet_buffer, recv_len, 0);
+            do {
+                recv_len = recv(inner_fd, tls_packet_buffer2, MAX_FRAGMENT_SIZE, 0);
+                if (recv_len == 0) break;
+                if (tls_context.current_state != TS_READY) continue; // consume the input if not yet ready
+                
+                size_t ret = encrypt_tls_packet(&tls_context, CT_APPLICATION_DATA, 0, tls_packet_buffer, MAX_REQUEST_SIZE, tls_packet_buffer2, recv_len);
+                CHECK_AND_SEND
+            } while (recv_len == MAX_FRAGMENT_SIZE);
         }
     }
     perror("TLS wrapper select(): ");
@@ -558,7 +570,7 @@ int handshake_tls(unsigned char * buffer, size_t record_end_offset, size_t len) 
 
     message_offset += sizeof(TLS_handshake);
 
-    if ((tls_context.recv_message_counter == 1 || trying_helloretry == 1) && handshake.msg_type == HT_CLIENT_HELLO) { // start of tls
+    if ((tls_context.recv_message_counter == 0 || trying_helloretry == 1) && handshake.msg_type == HT_CLIENT_HELLO) { // start of tls
         if (trying_helloretry == 1) trying_helloretry = 2;
 
         struct ClientHello CH_packet = {0};
@@ -666,8 +678,14 @@ int handle_tls_packet(unsigned char* buffer, size_t len) { // TODO: implement al
     }
 
 
+    if (record.length > MAX_FRAGMENT_SIZE) return -AD_RECORD_OVERFLOW;
+
     unsigned char * decrypted_buffer = NULL;
     int out_len = 0;
+
+    TLS_handshake decrypted_handshake = {0};
+    unsigned char decrypted_wrapped_type = 0;
+
     switch (record.content_type) {
         case CT_ALERT:
             fprintf(stderr, "Recieved ALERT: level: 0x%02hhx, desc 0x%02hhx\n", *(buffer+sizeof(TLS_record_header)),*(buffer+sizeof(TLS_record_header)+1));
@@ -679,9 +697,37 @@ int handle_tls_packet(unsigned char* buffer, size_t len) { // TODO: implement al
         case CT_APPLICATION_DATA:
             switch (tls_context.current_state) {
                 case TS_WAITING_FOR_CLIENT_FINISHED:
-                case TS_READY:
-                    out_len = decrypt_tls_packet(&tls_context, &decrypted_buffer, buffer, len); // decrypt_tls_packet needs record layer as AAD for AEAD
+                    out_len = decrypt_tls_packet(&tls_context, &decrypted_buffer, buffer, len, record_offset, &decrypted_handshake, &decrypted_wrapped_type); // decrypt_tls_packet needs record layer as AAD for AEAD
+                    if (out_len < 0 || !decrypted_buffer) return out_len;
+                    if (decrypted_handshake.msg_type != HT_FINISHED || decrypted_wrapped_type != CT_HANDSHAKE) {
+                        free(decrypted_buffer);
+                        return -AD_UNEXPECTED_MESSAGE;
+                    }
+
+                    int ret = verify_client_finished(&tls_context, decrypted_buffer, out_len);
                     
+                    if (ret == 0) {
+                        update_transcript_hash((unsigned char *)&decrypted_handshake, sizeof(TLS_handshake));
+                        update_transcript_hash(decrypted_buffer, out_len);
+                        fprintf(stderr, "Handshake finished, serving application data\n");
+                        tls_context.recv_message_counter = -1; // to roll around back to 0
+                        tls_context.txd_message_counter = 0;
+                        
+                        tls_context.current_state = TS_READY;
+                    }
+                    free(decrypted_buffer);
+                    return ret;
+                case TS_READY:
+                    out_len = decrypt_tls_packet(&tls_context, &decrypted_buffer, buffer, len, record_offset, &decrypted_handshake, &decrypted_wrapped_type); // decrypt_tls_packet needs record layer as AAD for AEAD
+                    if (out_len < 0 || !decrypted_buffer) return out_len;
+                    if (decrypted_wrapped_type != CT_APPLICATION_DATA) {
+                        free(decrypted_buffer);
+                        return -AD_UNEXPECTED_MESSAGE;
+                    }
+
+                    memcpy(buffer, decrypted_buffer, out_len);
+                    free(decrypted_buffer);
+                    return out_len;
                 default:
                     return -AD_UNEXPECTED_MESSAGE;
             }
@@ -689,7 +735,7 @@ int handle_tls_packet(unsigned char* buffer, size_t len) { // TODO: implement al
     }
 
     
-    return 0;
+    return -AD_DECODE_ERROR;
 }
 
 void cleanup() {
@@ -709,8 +755,10 @@ void cleanup() {
     free(tls_context.client_write_key.data);
     free(tls_context.server_application_secret_0.data);
     free(tls_context.server_application_iv.data);
+    free(tls_context.server_application_key.data);
     free(tls_context.client_application_secret_0.data);
     free(tls_context.client_application_iv.data);
+    free(tls_context.client_application_key.data);
     free(tls_context.cert);
     free(tls_context.cert_keys.private_key.data);
     free(tls_context.cert_keys.public_key.data);
