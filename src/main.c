@@ -196,8 +196,8 @@ exit(EXIT_SUCCESS);
             case 0:
                 break;
             default:
-                fprintf(stderr, "Failed to load ssl certificates!\n");
-                exit(EXIT_FAILURE);
+                fprintf(stderr, "Failed to load SSL certificates, disabling SSL!\n");
+                ssl = 0;
         }
     }
 

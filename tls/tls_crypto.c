@@ -182,7 +182,7 @@ void generate_server_app_secrets(struct tls_context * tls_context) { // has to b
     for (int i = 0; i < tls_context->client_application_key.len; i++) {
         fprintf(stderr, "%02hhx ", ((unsigned char *)tls_context->client_application_key.data)[i]);
     }
-    fprintf(stderr, "\ntls_context->client_write_iv: ");
+    fprintf(stderr, "\ntls_context->client_application_iv: ");
     for (int i = 0; i < tls_context->client_application_iv.len; i++) {
         fprintf(stderr, "%02hhx ", ((unsigned char *)tls_context->client_application_iv.data)[i]);
     }

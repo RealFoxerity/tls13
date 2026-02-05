@@ -165,5 +165,5 @@ static char asn1_print_node(const unsigned char * data, size_t *offset, size_t n
 void asn1_print_structure(const unsigned char * data, size_t n) {
     fprintf(stderr, "\n\n----- ASN.1 STRUCTURE -----\n");
     size_t off = 0;
-    while (off < n) asn1_print_node(data, &off, n);
+    while (off < n) if (asn1_print_node(data, &off, n) == 0) {fprintf(stderr, "##### INVALID/BROKEN/UNSUPPORTED CERTIFICATE #####"); return;};
 }

@@ -48,9 +48,10 @@ static void cleanup() {
     free(requested_path);
 }
 
+char should_exit = 0;
 static void exit_handler(int signal) {
     fprintf(stderr, "Caught Ctrl+C, exiting HTTP server\n");
-    exit(EXIT_SUCCESS);
+    should_exit = 1;
 }
 
 void server(int socket_fd) {
@@ -70,7 +71,7 @@ void server(int socket_fd) {
 
     errno = 0;
 
-    while (1) {
+    while (!should_exit) {
         memset(buffer, 0, MAX_REQUEST_SIZE);
 
         recv_amount = recv(socket_fd, buffer, MAX_REQUEST_SIZE, 0);

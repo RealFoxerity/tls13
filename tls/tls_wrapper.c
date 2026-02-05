@@ -108,7 +108,8 @@ char ssl_wrapper(int socket_fd, void (*wrapped_func)(int socket_fd)) {
         case 0:
             close(socks[0]);
             wrapped_func(socks[1]);
-            return(EXIT_SUCCESS);
+            ssl_cleanup();
+            return EXIT_SUCCESS;
             break;
         default:
             close(socks[1]);
@@ -652,7 +653,10 @@ int handle_tls_packet(unsigned char* buffer, size_t len) { // TODO: implement al
     }
 
     if (record.content_type == CT_CHANGE_CIPHER_SPEC) { // wrapped record (middlebox compatibility) (disguising tls 1.3 as tls 1.2)
-        if (htons(record.length) == 1 && len == sizeof(TLS_record_header) + 1) return 0; // middlebox compatibility, basically wrapped CCS can be either at the start of a packet or its own packet (gnutls)
+        if (htons(record.length) == 1 && len == sizeof(TLS_record_header) + 1) { // middlebox compatibility, basically wrapped CCS can be either at the start of a packet or its own packet (gnutls)
+            tls_context.recv_message_counter --; // change cipher spec messages aren't counted towards the message counter
+            return 0;
+        }
         if (record_offset + htons(record.length) + sizeof(TLS_record_header) >= len) goto trunc;
         record_offset += htons(record.length);
         memcpy(&record, buffer+record_offset, sizeof(TLS_record_header));

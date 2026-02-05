@@ -103,7 +103,7 @@ __attribute__((warn_unused_result)) static uint8_t * gcm_gctr(const uint8_t * ke
         const uint8_t * bitstring, size_t bitstring_len) { //see page 13 (21)
     // implementation notes: X* can never be less than a single byte since we're operating on bytes, so point 7 is simplified
     if (bitstring_len == 0) return NULL;
-    uint8_t * bitstring_out = malloc(bitstring_len+sizeof(uint64_t)); // not 100% sure why, but i get 8 byte invalid write, suspect due to n having the ternary operation, todo: figure out
+    uint8_t * bitstring_out = malloc(bitstring_len+sizeof(uint128_t));
     assert(bitstring_out);
     memset(bitstring_out, 0, bitstring_len);
 

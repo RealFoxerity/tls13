@@ -361,6 +361,8 @@ int construct_server_finished(struct tls_context * tls_context, unsigned char * 
     unsigned char * verify_data = hmac(get_transcript_hash_type(), finished_key, transcript_hash.len, transcript_hash.data, transcript_hash.len);
     assert(verify_data);
     free(finished_key);
+    free(transcript_hash.data);
+
     int ret = encrypt_tls_packet(tls_context, CT_HANDSHAKE, HT_FINISHED, buffer, len, verify_data, transcript_hash.len);
     free(verify_data);
     return ret;
@@ -387,6 +389,7 @@ int verify_client_finished(struct tls_context * tls_context, unsigned char * buf
     unsigned char * verify_data = hmac(get_transcript_hash_type(), finished_key, transcript_hash.len, transcript_hash.data, transcript_hash.len);
     assert(verify_data);
     free(finished_key);
+    free(transcript_hash.data);
 
     int ret = -AD_BAD_RECORD_MAC;
     if (memcmp(buffer, verify_data, transcript_hash.len) == 0) ret = 0;
@@ -394,6 +397,5 @@ int verify_client_finished(struct tls_context * tls_context, unsigned char * buf
         fprintf(stderr, "Client finished payload doesn't match expected value\n");
     }
     free(verify_data);
-
     return ret;
 }
